@@ -1,0 +1,12 @@
+# Downstream (fork) workspace. Separate from the upstream workspace at the
+# repository root so the root Cargo.toml stays untouched (FORK-PLAN §3,
+# option A). The launcher has no rustudio dependencies, so building this
+# workspace never pulls in the engine.
+[workspace]
+members = ["launcher"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"

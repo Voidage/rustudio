@@ -2,6 +2,10 @@ target/
 shots/
 __pycache__/
 
+# Downstream (fork) workspace build artifacts and assembled game bundles.
+game/target/
+game/build/
+
 # Generated probes and editor lock files
 tools/parity_probe/*/runs/
 *.rbxlx.lock
