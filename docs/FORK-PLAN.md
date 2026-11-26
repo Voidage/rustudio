@@ -702,7 +702,6 @@ teleports. Every patch is listed here and in `git log`.
 | ID | File(s) | Purpose | Est. size | Upstreamable | Phase |
 |---|---|---|---|---|---|
 | F0 | `game/`, `scripts/phase0-*.sh`, `.gitignore` | Downstream scaffold: spawn launcher, bundle format, Phase 0 fixture, cook tool (new paths; no upstream code) | — | n/a | 0 (cook: 1) |
-| U1 | `crates/rustudio-player/src/play_game.rs`, `play.rs` | Saved `Sound.Playing = true` autoplay on both sides + regression test (upstream bug found in Phase 0) | ~10 lines | Yes | 0 |
 | F1 | `crates/rustudio-player/src/player_app.rs` | `run_with_args`, window title/icon from env | 20–40 lines | Maybe | 2 (optional) |
 | F2 | `crates/rustudio-core/src/assets.rs`, `rustudio_settings.rs` | Offline mode: local-first, no network scheduling | 30–60 lines | Yes | 1 |
 | F3 | `crates/rustudio-core/src/default_scripts.rs` | `RUSTUDIO_ENGINE_CONTENT_DIR` as the first content root | 10–20 lines | Yes | 2 (optional) |
@@ -715,10 +714,9 @@ The content pack manager (`gamepack`) and first-launch resolution are
 downstream code. F3 only gives the engine a clean content root.
 
 F0 is downstream-only: it adds `game/` and the Phase 0 scripts, and does not
-touch upstream code. U1 is an upstream bug fix, not fork behaviour: it exists
-so a place's saved `Sound.Playing = true` starts (the Phase 0 fixture uses
-one), and it should be submitted upstream first and dropped from the fork
-once merged (§2.1).
+touch upstream code. U1 (sound autoplay) was an upstream bug fix, not fork
+behaviour; it merged as upstream PR **#46** (`ade1ff5`) and the local patch
+was dropped in that sync (§2.1). F2 is now upstream PR **#47**.
 
 Rules:
 
@@ -958,6 +956,7 @@ Update this table on every sync.
 | 2026-11-26 | `3f1ada8` (main; `Cargo.toml` 0.5.2) | plan | — | Initial plan |
 | 2026-11-26 | `3f1ada8` (main; `Cargo.toml` 0.5.2) | Phase 0 | F0, U1 | Phase 0 spike on Linux; U1 is upstream PR #46 |
 | 2026-11-26 | `7c2ce14` (main; `Cargo.toml` 0.6.0) | Phase 1 | F0, U1 | Synced 0.5.2 → 0.6.0 (Animation Editor); rebase + range-diff identical; workspace tests and Phase 0 smoke pass. U1 still open as PR #46. |
+| 2026-11-26 | `ade1ff5` (main; `Cargo.toml` 0.6.0) | Phase 1 | F0, F2, F7 | U1 (PR #46) merged upstream; local U1 dropped by rebase. F2 PR #47 open upstream. Rebased; gate rerun. |
 
 ---
 

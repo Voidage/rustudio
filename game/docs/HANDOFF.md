@@ -17,12 +17,13 @@ Phase 0 is complete and visually confirmed by the user.
 
 Phase 1 so far:
 
-- **Sync done.** Base moved from 0.5.2 (`3f1ada8`) to 0.6.0 (`7c2ce14`,
-  upstream main with the Animation Editor, script auto-indent, batch asset
-  uploader). The five fork commits re-applied cleanly; `range-diff` shows
-  them identical. Workspace tests and the three Phase 0 smoke runs pass on
-  the new base. U1 (sound autoplay) stays: upstream PR **#46 is still
-  open**.
+- **Sync done (twice).** Base moved from 0.5.2 (`3f1ada8`) to 0.6.0
+  (`7c2ce14`, upstream main with the Animation Editor, script auto-indent,
+  batch asset uploader), then to `ade1ff5` when **PR #46 (U1, sound
+  autoplay) merged upstream** — the local U1 patch was dropped by the
+  rebase. `range-diff` shows every remaining fork commit identical.
+  Workspace tests and the three Phase 0 smoke runs pass on the new base.
+  **F2 is upstream PR #47** (open).
 - **Cook tool** (`game/cook`, downstream): static scan of content
   properties (reflection DB + the asset_report name list) and script
   `Source`; a clean-cache headless playthrough capture; fetch of missed ids
@@ -86,12 +87,15 @@ Not started (Phase 1 remaining):
 
 ## Git state
 
-- Base: **`7c2ce14`** — upstream `main` at sync time, `Cargo.toml` 0.6.0.
+- Base: **`ade1ff5`** — upstream `main` after PR #46 merged, `Cargo.toml`
+  0.6.0.
 - `game` branch (local only, not pushed) is a linear stack on top of it:
-  U1, the Phase 0 F0 commits, the cook tool, F2, F7, and the Phase 1
-  docs/handoff commit.
-- Tag `pre-sync-20261126` is the state before the 0.6.0 sync.
-- `u1-autoplay-sounds` lives in `../upstream-u1`; it is PR #46's head.
+  the Phase 0/cook F0 commits, F2, F7, and the Phase 1 docs/handoff
+  commits. U1 is gone (merged upstream).
+- Tags: `pre-sync-20261126` (before the 0.6.0 sync) and
+  `pre-sync-20261126b` (before the U1-merge sync).
+- `../upstream-u1` / `u1-autoplay-sounds` is merged PR #46 (can be
+  cleaned up). `../upstream-f2` / `f2-offline-assets` is PR #47's branch.
 - Remotes: `upstream` → rippelz/rustudio, `fork` → Voidage/rustudio.
 
 ## Verify before you change anything
