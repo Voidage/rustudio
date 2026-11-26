@@ -60,7 +60,7 @@ different working directory still works.
 | `content` | no | Engine content pack (§7.1): absent, a mode (`"bundled"`, `"download"`, `"engine"`), an object, or a plain string naming a bundled pack path. |
 | `window` | no | `width`/`height` become `--window WxH` unless `args` already sets one. `title` is used from F1. |
 | `args` | no | Extra player arguments, passed verbatim (the harness escape hatch). |
-| `offline` | no | Records the offline promise. `RUSTUDIO_OFFLINE` is enforced from F2; until then the launcher does not set it. |
+| `offline` | no | `true` sets `RUSTUDIO_OFFLINE=1` for the player (F2): the cache and the local store only, no downloads. |
 
 The launcher forwards its own command-line arguments to the player after the
 manifest's. That is the debugging escape hatch:
@@ -98,7 +98,7 @@ so a debug session can override any of them:
 | `RUSTUDIO_LOCAL_ASSETS` | `<bundle>/assets` (only if it exists) |
 | `RUSTUDIO_CONTENT_DIR` | `<pack>/content` (only when a pack resolves) |
 | `RUSTUDIO_STUDIO_DIR` | `<pack>` (only when it validates) |
-| `RUSTUDIO_OFFLINE` | not set until F2 implements it |
+| `RUSTUDIO_OFFLINE` | `1` when the manifest's `offline` is true (F2) |
 
 The launcher changes its working directory to the bundle root, wires the
 player's stdout and stderr to `logs/latest.log`, propagates the player's exit

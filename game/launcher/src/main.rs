@@ -55,7 +55,7 @@ struct Manifest {
     /// Extra player arguments (the harness escape hatch, §4).
     #[serde(default)]
     args: Vec<String>,
-    /// Offline promise, enforced from F2 on (`RUSTUDIO_OFFLINE`).
+    /// Offline promise: `RUSTUDIO_OFFLINE=1` for the player (F2).
     #[serde(default)]
     offline: Option<bool>,
 }
@@ -119,6 +119,8 @@ struct Bundle {
     /// Only an existing directory: never point the engine at a missing path.
     assets: Option<PathBuf>,
     content: Content,
+    /// The manifest's offline promise: set `RUSTUDIO_OFFLINE=1`.
+    offline: bool,
 }
 
 /// What the launcher writes to its own log before the player starts.
@@ -261,10 +263,11 @@ fn resolve(manifest: &Manifest, root: &Path, is_dir: &dyn Fn(&Path) -> bool) -> 
     if assets.is_none() {
         notes.push("no assets/ folder: RUSTUDIO_LOCAL_ASSETS stays unset".into());
     }
-    if manifest.offline == Some(true) {
-        notes.push("offline: true (RUSTUDIO_OFFLINE is enforced from F2 on)".into());
+    let offline = manifest.offline == Some(true);
+    if offline {
+        notes.push("offline: true (RUSTUDIO_OFFLINE=1)".into());
     }
-    Ok(Plan { bundle: Bundle { root: root.to_path_buf(), entry, engine, cache, assets, content }, notes })
+    Ok(Plan { bundle: Bundle { root: root.to_path_buf(), entry, engine, cache, assets, content, offline }, notes })
 }
 
 fn resolve_content_mode(
@@ -364,6 +367,9 @@ fn env_contract(bundle: &Bundle) -> Vec<(&'static str, OsString)> {
         ("RUSTUDIO_LIVE_DATA", "0".into()),
         ("RUSTUDIO_CACHE_DIR", bundle.cache.clone().into_os_string()),
     ];
+    if bundle.offline {
+        vars.push(("RUSTUDIO_OFFLINE", "1".into()));
+    }
     if let Some(assets) = &bundle.assets {
         vars.push(("RUSTUDIO_LOCAL_ASSETS", assets.clone().into_os_string()));
     }
@@ -549,6 +555,7 @@ mod tests {
                 content_dir: Some(root.join("content/content")),
                 studio_dir: Some(root.join("content")),
             },
+            offline: true,
         };
         let vars: Vec<(&str, OsString)> = env_contract(&bundle);
         let get = |key: &str| vars.iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone());
@@ -556,6 +563,7 @@ mod tests {
         assert_eq!(get("RUSTUDIO_NO_STUDIO_FETCH"), Some(OsString::from("1")));
         assert_eq!(get("RUSTUDIO_CORE_SCRIPTS"), Some(OsString::from("0")));
         assert_eq!(get("RUSTUDIO_LIVE_DATA"), Some(OsString::from("0")));
+        assert_eq!(get("RUSTUDIO_OFFLINE"), Some(OsString::from("1")));
         assert_eq!(get("RUSTUDIO_CACHE_DIR"), Some(root.join("cache").into_os_string()));
         assert_eq!(get("RUSTUDIO_LOCAL_ASSETS"), Some(root.join("assets").into_os_string()));
         assert_eq!(get("RUSTUDIO_CONTENT_DIR"), Some(root.join("content/content").into_os_string()));
@@ -572,12 +580,14 @@ mod tests {
             cache: root.join("cache"),
             assets: None,
             content: Content::None,
+            offline: false,
         };
         let vars = env_contract(&bundle);
         let keys: Vec<&str> = vars.iter().map(|(k, _)| *k).collect();
         assert!(!keys.contains(&"RUSTUDIO_CONTENT_DIR"));
         assert!(!keys.contains(&"RUSTUDIO_STUDIO_DIR"));
         assert!(!keys.contains(&"RUSTUDIO_LOCAL_ASSETS"));
+        assert!(!keys.contains(&"RUSTUDIO_OFFLINE"));
     }
 
     #[test]
