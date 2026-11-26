@@ -590,7 +590,12 @@ local function parse_curve(clip)
 end
 
 local function parse_sequence(kfs)
-    if kfs:IsA("CurveAnimation") then return parse_curve(kfs) end
+    -- A direct clip (F7) has the same curve layout as the editor's type.
+    -- KeyframeSequence is an AnimationClip subclass in the API, so its own
+    -- (keyframe) layout has to win over the curve one.
+    if kfs:IsA("CurveAnimation") or (kfs:IsA("AnimationClip") and not kfs:IsA("KeyframeSequence")) then
+        return parse_curve(kfs)
+    end
     -- Native extraction keeps each Pose under its parent Pose name.
     local joints, frames, length = __rs_kfs_parts(kfs)
     for _, children in joints do
@@ -600,12 +605,29 @@ local function parse_sequence(kfs)
     return { joints = joints, frames = frames, length = length, loop = kfs.Loop, priority = kfs.Priority }
 end
 
+-- A direct clip's id is stable across the two sides (F7): both hold the same
+-- place tree, so `rbxtemp://kfs/ReplicatedStorage.Animations.Walk` (or
+-- clip/) names the client's own copy of a server-loaded clip. A name that
+-- contains "." is ambiguous; the same VM still finds its registry entry.
+local function clip_by_path(id)
+    local kind, path = string.match(id, "^rbxtemp://(kfs|clip)/(.+)$")
+    if not kind then return nil end
+    local node = game
+    for part in string.gmatch(path, "[^%.]+") do
+        node = node and node:FindFirstChild(part)
+    end
+    if not node then return nil end
+    if kind == "kfs" then return node:IsA("KeyframeSequence") and node or nil end
+    return node:IsA("AnimationClip") and node or nil
+end
+
 -- The sequence for an AnimationId: parsed, nil + true while its asset is
 -- still downloading, or nil when it can't be had.
 local function load_sequence(id)
     if sequences[id] ~= nil then return sequences[id] or nil end
     local kfs = registered[id]
     local temporary = string.find(id, "rbxtemp", 1, true)
+    if not kfs and temporary then kfs = clip_by_path(id) end
     local n = tonumber(string.match(id, "(%d+)%s*$"))
     if not kfs and not temporary then
         if n then
@@ -695,15 +717,37 @@ local function animator_of(owner)
 end
 
 function M.LoadAnimation(self, anim)
-    if typeof(anim) ~= "Instance" or not anim:IsA("Animation") then
+    local direct = typeof(anim) == "Instance" and (anim:IsA("KeyframeSequence") or anim:IsA("AnimationClip"))
+    if not direct and (typeof(anim) ~= "Instance" or not anim:IsA("Animation")) then
         error("LoadAnimation requires an Animation object", 2)
     end
     local animator = animator_of(self)
     -- Frame events (and with them the Animator step) go to RunService.
     game:GetService("RunService")
     local track = create("AnimationTrack")
+    local wrapper = anim
+    if direct then
+        -- F7: a KeyframeSequence / AnimationClip saved in the place plays as
+        -- it is — no upload, no asset id. The track carries a parentless
+        -- Animation so track.Animation stays non-nil, with a temp id the
+        -- track pipeline already loads. A clip in the DataModel gets a
+        -- stable path id so a server track's id resolves on the client.
+        local id
+        if anim.Parent then
+            local kind = anim:IsA("KeyframeSequence") and "kfs" or "clip"
+            id = "rbxtemp://" .. kind .. "/" .. anim:GetFullName()
+            registered[id] = anim
+        elseif anim:IsA("KeyframeSequence") then
+            id = game:GetService("KeyframeSequenceProvider"):RegisterKeyframeSequence(anim)
+        else
+            id = game:GetService("AnimationClipProvider"):RegisterAnimationClip(anim)
+        end
+        wrapper = create("Animation")
+        wrapper.Name = anim.Name
+        wrapper.AnimationId = id
+    end
     track.Name = anim.Name
-    __rs_track_new(track, anim, animator, rig_of(animator), anim.AnimationId)
+    __rs_track_new(track, wrapper, animator, rig_of(animator), wrapper.AnimationId)
     return track
 end
 

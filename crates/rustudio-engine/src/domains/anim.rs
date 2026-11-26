@@ -881,6 +881,61 @@ print("anim-pass")
 "#, 30);
     }
 
+    /// F7: a KeyframeSequence / AnimationClip saved in the place plays
+    /// through `LoadAnimation(clip)` with no upload and no asset id. The
+    /// track carries a parentless Animation wrapper with a temp id, so
+    /// `track.Animation` and `GetTrackByAnimationId` keep working.
+    #[test]
+    fn direct_keyframe_sequence_and_clip_load_animation() {
+        run(r#"
+local model = Instance.new("Model", workspace)
+local animator = Instance.new("Animator", Instance.new("AnimationController", model))
+local root = Instance.new("Part", model); root.Name = "Root"
+local limb = Instance.new("Part", model); limb.Name = "Limb"
+local motor = Instance.new("Motor6D", root); motor.Part0 = root; motor.Part1 = limb
+local folder = Instance.new("Folder", workspace); folder.Name = "Animations"
+local kfs = Instance.new("KeyframeSequence", folder); kfs.Name = "Wave"; kfs.Loop = true
+for i = 0, 1 do
+    local k = Instance.new("Keyframe", kfs); k.Time = i
+    local p = Instance.new("Pose", k); p.Name = "Root"
+    local q = Instance.new("Pose", p); q.Name = "Limb"
+    q.CFrame = CFrame.new(0, i * 2, 0)
+end
+local t = animator:LoadAnimation(kfs)
+assert(t and t:IsA("AnimationTrack"))
+assert(math.abs(t.Length - 1) < 1e-3, t.Length)
+assert(t.Looped == true)
+assert(t.Animation and t.Animation:IsA("Animation") and t.Animation.Parent == nil)
+assert(string.find(t.Animation.AnimationId, "rbxtemp://kfs/Workspace.Animations.Wave", 1, true), t.Animation.AnimationId)
+t:Play(0, 1, 0); t.TimePosition = 0.5
+task.wait(0.05)
+assert(math.abs(motor.Transform.Y - 1) < 0.02, motor.Transform.Y)
+assert(animator:GetTrackByAnimationId(t.Animation.AnimationId) == t)
+-- Humanoid:LoadAnimation takes the same direct clip.
+local h = Instance.new("Humanoid", model)
+local ht = h:LoadAnimation(kfs)
+assert(ht and math.abs(ht.Length - 1) < 1e-3, ht and ht.Length)
+-- Parentless: the registry's counter id instead of a path.
+local loose = Instance.new("KeyframeSequence"); loose.Loop = false
+local k = Instance.new("Keyframe", loose); k.Time = 0
+local p = Instance.new("Pose", k); p.Name = "Root"
+local lt = animator:LoadAnimation(loose)
+assert(lt and lt.Length == 0 and lt.Looped == false)
+assert(string.find(lt.Animation.AnimationId, "rbxtemp://kfs/", 1, true), lt.Animation.AnimationId)
+-- A curve clip (CurveAnimation is an AnimationClip subclass; AnimationClip
+-- itself is NotCreatable) takes the same direct form.
+local clip = Instance.new("CurveAnimation"); clip.Loop = true
+local f = Instance.new("Folder", clip); f.Name = "Root"
+local g = Instance.new("Folder", f); g.Name = "Limb"
+local rc = Instance.new("RotationCurve", g); rc.Name = "Rotation"
+rc:InsertKey(RotationCurveKey.new(0, CFrame.new(), Enum.KeyInterpolationMode.Linear))
+rc:InsertKey(RotationCurveKey.new(1, CFrame.Angles(0, math.pi/2, 0), Enum.KeyInterpolationMode.Linear))
+local ct = animator:LoadAnimation(clip)
+assert(ct and math.abs(ct.Length - 1) < 1e-3 and ct.Looped == true, ct and ct.Length)
+print("anim-pass")
+"#, 20);
+    }
+
     #[test]
     fn humanoid_state_api_and_statuses() {
         run(r#"
