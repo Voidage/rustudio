@@ -956,7 +956,7 @@ Update this table on every sync.
 | Date | Upstream base | Downstream | Patch stack | Notes |
 |---|---|---|---|---|
 | 2026-11-26 | `3f1ada8` (main; `Cargo.toml` 0.5.2) | plan | — | Initial plan |
-| 2026-11-26 | `3f1ada8` (main; `Cargo.toml` 0.5.2) | Phase 0 | F0, U1 | Phase 0 spike on Linux; U1 awaits an upstream PR |
+| 2026-11-26 | `3f1ada8` (main; `Cargo.toml` 0.5.2) | Phase 0 | F0, U1 | Phase 0 spike on Linux; U1 is upstream PR #46 |
 
 ---
 

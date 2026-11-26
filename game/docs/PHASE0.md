@@ -93,10 +93,10 @@ Regression test:
 `rustudio-player` suite still passes (50 + 1 tests).
 
 This is upstreamable as-is: a three-call change plus a test, no API change.
-It is a candidate for an upstream PR (FORK-PLAN §2.1, §13.5) and should be
-dropped from the fork once merged. Until then the working tree carries it;
-it is not listed in the §11 patch stack because it is a bug fix, not fork
-behaviour.
+It was submitted as an upstream PR on 2026-11-26:
+[rippelz/rustudio#46](https://github.com/rippelz/rustudio/pull/46), ported
+onto current `main` (0.6.0) and re-tested there. It should be dropped from
+the fork once merged; until then the `game` branch carries it as U1.
 
 ## Upstream churn surface
 
