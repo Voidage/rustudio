@@ -1,0 +1,20 @@
+{
+  "manifest_version": 1,
+  "id": "phase0-fixture",
+  "name": "rustudio fork Phase 0 fixture",
+  "version": "0.1.0",
+  "engine": "rustudio 0.5.2 (unmodified player)",
+  "entry": "place/game.rbxlx",
+  "cache": "cache",
+  "assets": "assets",
+  "content": {
+    "mode": "engine"
+  },
+  "window": {
+    "title": "rustudio fork Phase 0 fixture",
+    "width": 1280,
+    "height": 720
+  },
+  "args": [],
+  "offline": true
+}
