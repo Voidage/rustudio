@@ -3,7 +3,7 @@
   "id": "phase0-fixture",
   "name": "rustudio fork Phase 0 fixture",
   "version": "0.1.0",
-  "engine": "rustudio 0.5.2 (unmodified player)",
+  "engine": "rustudio 0.6.0 (unmodified player)",
   "entry": "place/game.rbxlx",
   "cache": "cache",
   "assets": "assets",

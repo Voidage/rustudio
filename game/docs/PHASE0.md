@@ -1,9 +1,10 @@
 # Phase 0 — spike results
 
-Status: **complete on Linux** (2026-11-26). Base: rustudio 0.5.2 source tree.
-The remaining Phase 0 items are the clean VM / network-namespace run and the
-visual review, both deferred for now (the clean-HOME, no-Studio run is done
-natively instead as a partial stand-in).
+Status: **complete on Linux** (2026-11-26). Base at the time: rustudio 0.5.2
+source tree; re-run and passing on the 0.6.0 sync base (`7c2ce14`) the same
+day. The remaining Phase 0 items are the clean VM / network-namespace run and
+the visual review, both deferred for now (the clean-HOME, no-Studio run is
+done natively instead as a partial stand-in).
 
 ## What was built
 
