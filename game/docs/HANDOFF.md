@@ -50,9 +50,9 @@ Phase 1 so far:
   `Workspace.ANIMATION` (length 1, loop true) played on the R15 avatar as
   `rbxtemp://kfs/Workspace.ANIMATION`; the rig has 15
   `AnimationConstraint`s (0.6's upgraded joints), 12 moved and 20 distinct
-  poses were sampled. The probe used was
-  `--luau client f7_acceptance.luau@5` (the harness runs a client script
-  without touching the place).
+  poses were sampled. The reproducible probe is
+  `game/fixtures/f7/acceptance.luau` (run with
+  `--luau client game/fixtures/f7/acceptance.luau@5`; see its README).
 
 Not started (Phase 1 remaining):
 
