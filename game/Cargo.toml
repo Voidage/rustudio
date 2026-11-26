@@ -3,10 +3,18 @@
 # option A). The launcher has no rustudio dependencies, so building this
 # workspace never pulls in the engine.
 [workspace]
-members = ["launcher"]
+members = ["launcher", "cook"]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+
+# The upstream workspace patches rbx_dom_weak with detach_children /
+# detach_descendants and an end-first child removal; rustudio-core calls
+# those, so the cook (which reuses the engine's document reader) must resolve
+# the same vendored copy. Downstream-only configuration; upstream files do not
+# change (FORK-PLAN §2.3, §2.5).
+[patch.crates-io]
+rbx_dom_weak = { path = "../vendor/rbx_dom_weak" }

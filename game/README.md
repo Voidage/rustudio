@@ -7,12 +7,16 @@ changes cannot break it.
 
 ```
 game/
-  Cargo.toml          downstream workspace (members: launcher)
+  Cargo.toml          downstream workspace (members: launcher, cook)
   launcher/           spawn-mode launcher: reads game.json, sets the env
                       contract, runs engine/rustudio-player
+  cook/               developer tool: scans a place's content ids, captures
+                      what Play requests, writes the bundle cache +
+                      assets.json (Phase 1)
   fixtures/phase0/    the Phase 0 fixture (place, assets, manifest) and its
                       generator
   docs/BUNDLE.md      bundle format + manifest + environment contract
+  docs/COOK.md        the cook tool: usage, report format, statuses
   docs/PHASE0.md      the Phase 0 spike: what ran, what it found
   build/              assembled bundles (generated; git-ignored)
 ```
@@ -40,7 +44,19 @@ spawned character with the register-then-`LoadAnimation` form (the direct
 `LoadAnimation(kfs)` form is F7). `scripts/phase0-smoke.sh` asserts on the
 `PROBE` lines the fixture's LocalScript prints.
 
-## Launcher unit tests
+## Cook a place (Phase 1)
+
+```sh
+cargo build --release --manifest-path game/Cargo.toml
+game/target/release/rustudio-cook --place my_place.rbxlx \
+    --out game/build/my-game --content game/content \
+    --player target/release/rustudio-player
+```
+
+See [docs/COOK.md](docs/COOK.md): what it scans, the playthrough capture,
+`assets.json`, and `--signed-in` / `--local-assets`.
+
+## Downstream unit tests
 
 ```sh
 cargo test --manifest-path game/Cargo.toml

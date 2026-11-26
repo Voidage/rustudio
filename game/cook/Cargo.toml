@@ -1,0 +1,17 @@
+[package]
+name = "rustudio-cook"
+description = "Cooks a place into a game bundle: scans content ids, captures what Play requests, writes assets.json"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Unlike the launcher, the cook is a developer tool and may depend on upstream
+# crates (FORK-PLAN §3): it reuses the engine's document reader and asset
+# path so the bundle gets exactly the bytes Play would load.
+[dependencies]
+rustudio-core = { path = "../../crates/rustudio-core" }
+rustudio-account = { path = "../../crates/rustudio-account" }
+rbx_reflection = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
