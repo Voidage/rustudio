@@ -106,7 +106,7 @@ check() {
 
 echo "== R15 through the launcher"
 rm -f "$BUNDLE/logs/smoke-r15.log"
-"$BUNDLE/phase0-game" --headless --seconds 12 --log logs/smoke-r15.log --fail-on-error
+"$BUNDLE/phase0-game" --headless --seconds 15 --log logs/smoke-r15.log --fail-on-error
 check "$BUNDLE/logs/smoke-r15.log"
 echo "   ok"
 
@@ -121,7 +121,7 @@ rm -f "$BUNDLE/logs/smoke-r6.log"
     RUSTUDIO_CACHE_DIR="$BUNDLE/cache" \
     RUSTUDIO_LOCAL_ASSETS="$BUNDLE/assets" \
         ./engine/rustudio-player place/game-r6.rbxlx \
-        --headless --seconds 12 --log logs/smoke-r6.log --fail-on-error
+        --headless --seconds 15 --log logs/smoke-r6.log --fail-on-error
 )
 check "$BUNDLE/logs/smoke-r6.log"
 echo "   ok"
@@ -130,7 +130,7 @@ echo "== clean HOME, no Studio content (blocky fallback)"
 CLEAN_HOME=$(mktemp -d)
 RUSTUDIO_STUDIO_DIR=/nonexistent \
     HOME="$CLEAN_HOME" \
-    "$BUNDLE/phase0-game" --headless --seconds 12 --log logs/smoke-clean.log --fail-on-error
+    "$BUNDLE/phase0-game" --headless --seconds 15 --log logs/smoke-clean.log --fail-on-error
 check "$BUNDLE/logs/smoke-clean.log"
 if find "$CLEAN_HOME" -mindepth 1 -maxdepth 2 ! -path '*/.cache' ! -path '*/.cache/*' | grep -q .; then
     echo "  the player wrote outside the bundle's cache:" >&2

@@ -258,13 +258,19 @@ end, 10, "the shoulder Motor6D")
 
 local first = joint.Transform
 local moved, poses = 0, {}
-for _ = 1, 25 do
+-- A cold first frame (shader/pipeline warm-up, a busy machine) can delay the
+-- Animator's first steps: sample until the joint has actually moved instead
+-- of assuming 2.5 s of wall clock is enough.
+for _ = 1, 60 do
 	task.wait(0.1)
 	local pose = joint.Transform
 	if pose ~= first then
 		moved += 1
 	end
 	poses[tostring(pose)] = true
+	if moved &gt;= 5 then
+		break
+	end
 end
 local distinct = 0
 for _ in pairs(poses) do
