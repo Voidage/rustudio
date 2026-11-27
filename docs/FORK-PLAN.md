@@ -862,8 +862,9 @@ movement/camera and default animation.
   is out of scope: the download cache is never pruned.
 - Download mode for the content pack: fetch, hash check, per-user install,
   reuse, and update.
-- Studio UI actions for Build/Update Content Pack (wraps `gamepack`); this
-  can slip to Phase 3 if the CLI is enough.
+- Studio UI actions for Build/Update Content Pack: skipped (2026-11-27).
+  The `gamepack` CLI is enough, and the editor should not put pack
+  management in a game developer's way.
 - Optional content pack additions only if a game needs them. The default
   pack keeps Studio's R15/R6 bodies, Animate and font fallbacks unchanged;
   no custom rig is planned.

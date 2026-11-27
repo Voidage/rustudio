@@ -79,9 +79,11 @@ Phase 2 so far:
 
 Phase 2 remaining (suggested order):
 
-1. Studio UI actions for Build/Update/Publish Content Pack (wraps
-   `gamepack`, including the download-mode zip).
-2. Packaging, signing/notarization as distribution requires.
+1. Packaging, signing/notarization as distribution requires.
+
+Skipped by decision (2026-11-27): Studio UI actions for the content pack.
+The `gamepack` CLI is enough; the editor should not put pack management in
+a game developer's way.
 
 Cache management is out of scope: the download cache is never pruned.
 
