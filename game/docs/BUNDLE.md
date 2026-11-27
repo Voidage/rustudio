@@ -74,14 +74,15 @@ manifest's. That is the debugging escape hatch:
 
 ## Content resolution (§7.1)
 
-1. `bundled` (or a plain string path): `<bundle>/<path>` must exist. Its
-   `content/` becomes `RUSTUDIO_CONTENT_DIR`; the pack root becomes
-   `RUSTUDIO_STUDIO_DIR` **only** when it has
-   `ExtraContent/scripts/PlayerScripts` (the engine validates the same rule).
-2. `download`: not implemented yet (phase 1). The launcher logs the fallback
-   and starts without a pack.
-3. `engine`: leaves both variables unset so the engine's own lookup decides
-   (development only).
+1. `bundled` (or a plain string path): `<bundle>/<path>` must exist and is
+   set as `RUSTUDIO_ENGINE_CONTENT_DIR` (F3). The engine uses its `content/`
+   for `rbxasset://` and its `ExtraContent/scripts/PlayerScripts` for the
+   default player scripts, validating each half on its own: a pack with only
+   one half still works for that half.
+2. `download`: not implemented yet. The launcher logs the fallback and starts
+   without a pack.
+3. `engine`: leaves `RUSTUDIO_ENGINE_CONTENT_DIR` unset so the engine's own
+   lookup decides (development only).
 4. No pack or a missing/invalid one: the game still launches with the
    engine's blocky fallback and logs what is missing. A missing pack never
    fails the launch.
@@ -101,8 +102,7 @@ so a debug session can override any of them:
 | `RUSTUDIO_DATASTORE_DIR` | `<bundle>/datastores` (F5) |
 | `RUSTUDIO_WINDOW_TITLE` | `window.title`, else the game name (F1) |
 | `RUSTUDIO_LOCAL_ASSETS` | `<bundle>/assets` (only if it exists) |
-| `RUSTUDIO_CONTENT_DIR` | `<pack>/content` (only when a pack resolves) |
-| `RUSTUDIO_STUDIO_DIR` | `<pack>` (only when it validates) |
+| `RUSTUDIO_ENGINE_CONTENT_DIR` | `<pack>` (only when a pack resolves) |
 | `RUSTUDIO_OFFLINE` | `1` when the manifest's `offline` is true (F2) |
 | `RUSTUDIO_ASSET_PLACE` | `<bundle>/<entry>`: the capture ledger's place key (F4) |
 

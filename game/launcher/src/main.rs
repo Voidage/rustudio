@@ -104,11 +104,10 @@ enum Content {
     /// (development only, per the manifest).
     Engine,
     Bundled {
-        /// `<bundle>/<path>/content`: the `rbxasset://` root.
-        content_dir: Option<PathBuf>,
-        /// `<bundle>/<path>`: set only when it validates as a Studio root
-        /// (`ExtraContent/scripts/PlayerScripts`), as §6 requires.
-        studio_dir: Option<PathBuf>,
+        /// `<bundle>/<path>`: the pack root. It has the Studio layout
+        /// (`content/` and/or `ExtraContent/scripts/PlayerScripts`); the
+        /// engine validates each half (F3).
+        root: PathBuf,
     },
 }
 
@@ -353,22 +352,21 @@ fn resolve_bundled(
         ));
         return Ok(Content::None);
     }
-    let content_dir = pack.join("content");
-    let content_dir = is_dir(&content_dir).then_some(content_dir);
-    let studio = pack.join("ExtraContent/scripts/PlayerScripts");
-    let studio_dir = is_dir(&studio).then(|| pack.clone());
-    match (&content_dir, &studio_dir) {
-        (Some(_), Some(_)) => notes.push(format!("content: bundled pack {}", pack.display())),
-        (Some(_), None) => notes.push(format!(
+    let has_content = is_dir(&pack.join("content"));
+    let has_scripts = is_dir(&pack.join("ExtraContent/scripts/PlayerScripts"));
+    match (has_content, has_scripts) {
+        (true, true) => notes.push(format!("content: bundled pack {}", pack.display())),
+        (true, false) => notes.push(format!(
             "content: bundled pack {} has content/ but no ExtraContent/scripts/PlayerScripts; \
-             RUSTUDIO_STUDIO_DIR stays unset",
+             default scripts come from the engine's own lookup",
             pack.display()
         )),
-        (None, Some(_)) => notes.push(format!(
-            "content: bundled pack {} has PlayerScripts but no content/; RUSTUDIO_CONTENT_DIR stays unset",
+        (false, true) => notes.push(format!(
+            "content: bundled pack {} has PlayerScripts but no content/; \
+             rbxasset:// falls back to the engine's content",
             pack.display()
         )),
-        (None, None) => {
+        (false, false) => {
             notes.push(format!(
                 "content: {} has neither content/ nor ExtraContent/scripts/PlayerScripts; ignoring it",
                 pack.display()
@@ -376,7 +374,7 @@ fn resolve_bundled(
             return Ok(Content::None);
         }
     }
-    Ok(Content::Bundled { content_dir, studio_dir })
+    Ok(Content::Bundled { root: pack })
 }
 
 /// A manifest path must stay inside the bundle (§4: all paths are relative
@@ -423,11 +421,8 @@ fn env_contract(bundle: &Bundle) -> Vec<(&'static str, OsString)> {
     if let Some(assets) = &bundle.assets {
         vars.push(("RUSTUDIO_LOCAL_ASSETS", assets.clone().into_os_string()));
     }
-    if let Content::Bundled { content_dir: Some(dir), .. } = &bundle.content {
-        vars.push(("RUSTUDIO_CONTENT_DIR", dir.clone().into_os_string()));
-    }
-    if let Content::Bundled { studio_dir: Some(dir), .. } = &bundle.content {
-        vars.push(("RUSTUDIO_STUDIO_DIR", dir.clone().into_os_string()));
+    if let Content::Bundled { root } = &bundle.content {
+        vars.push(("RUSTUDIO_ENGINE_CONTENT_DIR", root.clone().into_os_string()));
     }
     vars
 }
@@ -531,13 +526,7 @@ mod tests {
             &mut notes,
         )
         .unwrap();
-        assert_eq!(
-            bundled,
-            Content::Bundled {
-                content_dir: Some(root.join("content/content")),
-                studio_dir: Some(root.join("content")),
-            }
-        );
+        assert_eq!(bundled, Content::Bundled { root: root.join("content") });
 
         let mut notes = Vec::new();
         let engine = resolve_content_mode("engine", "content", root, &|_| true, &mut notes).unwrap();
@@ -550,7 +539,7 @@ mod tests {
     }
 
     #[test]
-    fn a_pack_without_studio_scripts_only_sets_the_content_root() {
+    fn a_pack_without_studio_scripts_still_uses_its_content() {
         let root = Path::new("/games/mygame");
         let mut notes = Vec::new();
         let pack = resolve_content_mode(
@@ -561,7 +550,7 @@ mod tests {
             &mut notes,
         )
         .unwrap();
-        assert_eq!(pack, Content::Bundled { content_dir: Some(root.join("content/content")), studio_dir: None });
+        assert_eq!(pack, Content::Bundled { root: root.join("content") });
     }
 
     #[test]
@@ -605,10 +594,7 @@ mod tests {
             assets: Some(root.join("assets")),
             datastores: root.join("datastores"),
             window_title: "My Game".into(),
-            content: Content::Bundled {
-                content_dir: Some(root.join("content/content")),
-                studio_dir: Some(root.join("content")),
-            },
+            content: Content::Bundled { root: root.join("content") },
             offline: true,
         };
         let vars: Vec<(&str, OsString)> = env_contract(&bundle);
@@ -623,8 +609,10 @@ mod tests {
         assert_eq!(get("RUSTUDIO_WINDOW_TITLE"), Some(OsString::from("My Game")));
         assert_eq!(get("RUSTUDIO_ASSET_PLACE"), Some(root.join("place/game.rbxlx").into_os_string()));
         assert_eq!(get("RUSTUDIO_LOCAL_ASSETS"), Some(root.join("assets").into_os_string()));
-        assert_eq!(get("RUSTUDIO_CONTENT_DIR"), Some(root.join("content/content").into_os_string()));
-        assert_eq!(get("RUSTUDIO_STUDIO_DIR"), Some(root.join("content").into_os_string()));
+        assert_eq!(get("RUSTUDIO_ENGINE_CONTENT_DIR"), Some(root.join("content").into_os_string()));
+        // The Studio-layout variables stay a development escape hatch.
+        assert_eq!(get("RUSTUDIO_CONTENT_DIR"), None);
+        assert_eq!(get("RUSTUDIO_STUDIO_DIR"), None);
     }
 
     #[test]
@@ -643,6 +631,7 @@ mod tests {
         };
         let vars = env_contract(&bundle);
         let keys: Vec<&str> = vars.iter().map(|(k, _)| *k).collect();
+        assert!(!keys.contains(&"RUSTUDIO_ENGINE_CONTENT_DIR"));
         assert!(!keys.contains(&"RUSTUDIO_CONTENT_DIR"));
         assert!(!keys.contains(&"RUSTUDIO_STUDIO_DIR"));
         assert!(!keys.contains(&"RUSTUDIO_LOCAL_ASSETS"));

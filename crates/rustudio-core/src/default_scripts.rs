@@ -3,7 +3,9 @@
 //! character after Play start, source lengths matched file by file).
 //!
 //! Nothing is copied into rustudio: the scripts are read at Play start from
-//! the Studio install (read only), found as `RUSTUDIO_STUDIO_DIR`, else an
+//! the engine content root (`RUSTUDIO_ENGINE_CONTENT_DIR`, a game bundle's
+//! pack), else the Studio install (read only), found as
+//! `RUSTUDIO_STUDIO_DIR`, else an
 //! up-to-date Studio on this machine (Vinegar's newest version folder: it
 //! updates itself, so its scripts are the ones Studio runs today), else the
 //! folder the default content link (`~/.local/share/rustudio/content`) points
@@ -65,6 +67,14 @@ use crate::rig_type::RigType;
 /// The Studio install the default scripts are read from.
 pub fn studio_dir() -> Option<PathBuf> {
     let has = |p: &Path| p.join("ExtraContent/scripts/PlayerScripts").is_dir();
+    // F3: a game bundle names its own content root; it has the same layout
+    // as a Studio install (content/ + ExtraContent/scripts/PlayerScripts).
+    if let Ok(p) = std::env::var("RUSTUDIO_ENGINE_CONTENT_DIR") {
+        let p = PathBuf::from(p);
+        if has(&p) {
+            return Some(p);
+        }
+    }
     if let Ok(p) = std::env::var("RUSTUDIO_STUDIO_DIR") {
         let p = PathBuf::from(p);
         return has(&p).then_some(p);

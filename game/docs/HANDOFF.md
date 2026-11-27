@@ -32,8 +32,24 @@ Phase 2 so far:
 - **F1 window title — done (icon optional).** The launcher sets
   `RUSTUDIO_WINDOW_TITLE` from `window.title` (else the game name); the
   player uses it as the window title, falling back to `rustudio-player`.
+- **F3 clean engine content root — done.** The launcher sets one variable,
+  `RUSTUDIO_ENGINE_CONTENT_DIR=<pack>`; `assets::content_dir` and
+  `default_scripts::studio_dir` validate the pack's `content/` and
+  `ExtraContent/scripts/PlayerScripts` halves separately. The Studio-layout
+  variables remain for development and the zero-patch smoke test.
 - **U3 (not Phase 2):** attachment selection, gizmos and property frames
   landed as a separate upstream-bound commit.
+
+Phase 2 remaining (suggested order):
+
+1. Asset Manager per-place view, cache size/retention UI, optional durable
+   asset-library mirror (§8.4).
+2. Content pack download mode: fetch, hash check, per-user install, reuse,
+   update (§7.1).
+3. Studio UI actions for Build/Update Content Pack (wraps `gamepack`).
+4. Game-scoped config/crash/log paths (stop user settings leaking in).
+5. Offline service messages and the manifest's allow-network opt-in (§9).
+6. Packaging, signing/notarization as distribution requires.
 
 Phase 1 (complete):
 

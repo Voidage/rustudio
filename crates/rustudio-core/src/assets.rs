@@ -7,7 +7,8 @@
 //!   number: a cloud asset, read from the disk cache or downloaded (needs a
 //!   signed-in account or API key with `legacy-asset:manage`).
 //! * `rbxasset://path`: inside the content folder the person chooses
-//!   (RUSTUDIO_CONTENT_DIR, else ~/.local/share/rustudio/content).
+//!   (RUSTUDIO_ENGINE_CONTENT_DIR's content/, else RUSTUDIO_CONTENT_DIR,
+//!   else ~/.local/share/rustudio/content).
 //! * `file://` URLs and plain paths (relative ones next to the open file).
 
 use std::collections::{HashMap, HashSet};
@@ -73,6 +74,16 @@ fn track_fetch(id: &str, result: &Fetch) {
 pub type SharedClient = Arc<Mutex<Option<rustudio_account::Client>>>;
 
 pub fn content_dir() -> PathBuf {
+    // F3: the bundle's content root. Its layout is a Studio root (the
+    // `rbxasset://` files live in `content/`); fall through when this pack
+    // has no content half, so a scripts-only pack does not hide the
+    // engine's own content.
+    if let Ok(p) = std::env::var("RUSTUDIO_ENGINE_CONTENT_DIR") {
+        let content = PathBuf::from(p).join("content");
+        if content.is_dir() {
+            return content;
+        }
+    }
     if let Ok(p) = std::env::var("RUSTUDIO_CONTENT_DIR") {
         if !p.is_empty() {
             return PathBuf::from(p);

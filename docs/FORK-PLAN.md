@@ -245,8 +245,9 @@ development.
 | `RUSTUDIO_CACHE_DIR` | `<bundle>/cache` | Bundled, first-priority disk asset cache. |
 | `RUSTUDIO_DATASTORE_DIR` | `<bundle>/datastores` | F5: the local DataStore backend's files. Also selects local DataStores for a local place. |
 | `RUSTUDIO_LOCAL_ASSETS` | `<bundle>/assets` | Optional secondary local store. |
-| `RUSTUDIO_STUDIO_DIR` | resolved pack root | Only set when a pack resolved; otherwise unset for fallback. |
-| `RUSTUDIO_CONTENT_DIR` | resolved pack root/content | Same. |
+| `RUSTUDIO_ENGINE_CONTENT_DIR` | resolved pack root | F3: the game content root. The engine validates `content/` and `ExtraContent/scripts/PlayerScripts` separately. |
+| `RUSTUDIO_STUDIO_DIR` | a Studio root | Development only; still supported after F3. |
+| `RUSTUDIO_CONTENT_DIR` | a `rbxasset://` root | Development only; still supported after F3. |
 | `RUSTUDIO_OFFLINE` | `1` | After F2: no background downloads, local store first. |
 | `RUSTUDIO_WINDOW_TITLE` | `window.title`, else the game name | F1: the player's window title. |
 | `RUSTUDIO_ALLOW_LOCAL_CONTENT` | unset | Prefer the `.rustudio-local-content` marker when a game needs relative files. |
@@ -257,9 +258,13 @@ Notes:
 - The launcher resolves the content pack first (§7.1), then sets these. If no
   pack resolved, leave them unset; the engine's blocky fallback and
   missing-script warnings take over. Never point them at a missing directory.
-- `RUSTUDIO_STUDIO_DIR` is validated by `default_scripts::studio_dir()`: the
-  root must contain `ExtraContent/scripts/PlayerScripts`. A pack that fails
-  validation is treated as absent.
+- `RUSTUDIO_ENGINE_CONTENT_DIR` is the pack root; the engine uses its
+  `content/` half for `rbxasset://` and its
+  `ExtraContent/scripts/PlayerScripts` half for default scripts, validating
+  each half on its own. A pack missing one half falls back for that half
+  only. `RUSTUDIO_STUDIO_DIR` (validated the same way) and
+  `RUSTUDIO_CONTENT_DIR` remain for development and for the zero-patch
+  smoke test.
 - A downloaded pack is installed under the game's per-user data directory
   (for example `<data>/<game-id>/content-pack/<version>/`) and reused.
 - User settings can leak in from the user's rustudio config (solver, quality,
@@ -399,8 +404,10 @@ materials. Game assets are the place's own content ids: sounds, images,
 meshes, animation asset bytes, models. The latter are captured per place and
 exported into the bundle's `cache/` (§8.4); they are not part of the pack.
 
-Later, F3 makes the content root explicit with
-`RUSTUDIO_ENGINE_CONTENT_DIR` instead of reusing the Studio-layout env var.
+F3 (done) makes the content root explicit with
+`RUSTUDIO_ENGINE_CONTENT_DIR`; the launcher sets that one variable and the
+engine validates the pack's two halves. The Studio-layout variables remain
+for development.
 
 ### 7.2 KeyframeSequence playback (local, no upload)
 
@@ -730,7 +737,7 @@ teleports. Every patch is listed here and in `git log`.
 | F0 | `game/`, `scripts/phase0-*.sh`, `.gitignore` | Downstream scaffold: spawn launcher, bundle format, Phase 0 fixture, cook tool (new paths; no upstream code) | — | n/a | 0 (cook: 1) |
 | F1 | `crates/rustudio-player/src/player_app.rs` | Window title from `RUSTUDIO_WINDOW_TITLE` (`run_with_args`/icon still optional) | 20–40 lines | Maybe | 2 (title done; icon optional) |
 | F2 | `crates/rustudio-core/src/assets.rs`, `rustudio_settings.rs` | Offline mode: local-first, no network scheduling | 30–60 lines | Yes | 1 |
-| F3 | `crates/rustudio-core/src/default_scripts.rs` | `RUSTUDIO_ENGINE_CONTENT_DIR` as the first content root | 10–20 lines | Yes | 2 (optional) |
+| F3 | `crates/rustudio-core/src/default_scripts.rs`, `assets.rs` | `RUSTUDIO_ENGINE_CONTENT_DIR` as the first content root (validated per half) | 10–20 lines | Yes | 2 (done) |
 | F4 | `crates/rustudio-core/src/assets.rs`, `player_app.rs` / `src/app.rs` (2-line place hooks) (+ `rustudio-cook export`) | Asset capture ledger + requested-ID manifest/export (the cache already persists the bytes) | 40–80 lines | Yes | 1 (done) |
 | F5 | `crates/rustudio-engine/src/domains/data_local.rs`, new `data_store_files.rs` | File-backed local DataStores: the same `DataStoreService` API, records under `<bundle>/datastores` | 150–300 lines | Maybe | 2 |
 | F6 | `crates/rustudio-player/src/play_teleport.rs` | Local multi-place teleports | larger | No | 3 |
@@ -817,7 +824,7 @@ movement/camera and default animation.
 - F5 local, file-backed DataStores (the same `DataStoreService` API; no new
   save API).
 - F1 window title (done); the icon is optional.
-- F3 clean engine content root.
+- F3 clean engine content root (done).
 - If/when upstream animation authoring tools land, their preview reuses the
   same direct playback path; no separate integration is required.
 - Direct-clip replication, with F8 only if path-based ids are not enough.
@@ -1131,8 +1138,9 @@ offline test. §8.4 automates this with a per-place ledger and export.
 | `RUSTUDIO_CACHE_DIR` | `assets::cache_dir` | Assets + pipeline cache. |
 | `RUSTUDIO_DATASTORE_DIR` | `domains::data::datastore_root` | F5: local DataStore records; also enables local DataStores for a local place. |
 | `RUSTUDIO_LOCAL_ASSETS` | `rustudio_settings.rs` | `<id>` / `<id>.<ext>` store. |
-| `RUSTUDIO_CONTENT_DIR` | `assets::content_dir` | `rbxasset://` root. |
-| `RUSTUDIO_STUDIO_DIR` | `default_scripts::studio_dir` | Must contain `ExtraContent/scripts/PlayerScripts`. |
+| `RUSTUDIO_ENGINE_CONTENT_DIR` | `assets::content_dir`, `default_scripts::studio_dir` | F3: the pack root; validated per half. |
+| `RUSTUDIO_CONTENT_DIR` | `assets::content_dir` | `rbxasset://` root (development). |
+| `RUSTUDIO_STUDIO_DIR` | `default_scripts::studio_dir` | Must contain `ExtraContent/scripts/PlayerScripts` (development). |
 | `RUSTUDIO_ALLOW_LOCAL_CONTENT` | `assets::local_content_opt_in` | Only `1` enables; prefer the marker. |
 | `RUSTUDIO_ASSET_REPORT` | `asset_report.rs` | Test/audit only. |
 | `RUSTUDIO_GAPS` | `telemetry.rs` | Local JSON; tests only. |
