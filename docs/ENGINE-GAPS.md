@@ -332,3 +332,13 @@ camera 75 → 100 with the 2° tolerance unchanged.
 4. ~~GuiService.MenuOpened / MenuClosed with an in-game Esc menu~~ (round 13).
 5. Gamepad input (GamepadConnected / Disconnected, gamepad KeyCodes).
 6. The rest of `missing_game_members_by_class` in the coverage report.
+7. **UserInputService:IsMouseButtonPressed always answers false** (a stub
+   in `runtime_ext.rs`). Any input-driven camera (the fork's content-pack
+   CameraModule) has to track InputBegan/InputEnded instead of asking it.
+   Found making the fork's offline content pack in Play, 2026-11-26.
+8. **The R15 fallback head's face texture hides the head.** Studio's
+   `content/avatar/defaultDynamicHead.rbxm` carries a face texture that
+   is transparent everywhere except the face; drawn as the MeshPart's
+   TextureContent it makes the whole head invisible. The fork's pack
+   loader clears that texture on the client (the head then reads). Studio
+   composites the face over the head instead.
