@@ -80,9 +80,12 @@ Phase 1 so far:
   entries into `<out>/cache/assets` and writes `offline-assets.json` with
   sizes and sha256, reporting `missing` and `failed` ids. Unit-tested in
   both crates; docs in `game/docs/COOK.md`.
-  The asset-manager local-copy idea (§18.19) is **not done**: it patches
-  the upstream upload UI, which §18.19 itself rates as not worth the
-  rebase surface; the ledger + export cover the offline goal.
+  There is no "keep downloaded assets" toggle: the cache has no eviction,
+  so retention is already the behaviour; the toggle belongs with the Phase 2
+  Asset Manager UI (§8.4 item 2). The asset-manager local-copy idea (§18.19)
+  is **not done** either: it patches the upstream upload UI, which §18.19
+  itself rates as not worth the rebase surface; the ledger + export cover
+  the offline goal.
 
 - **Launcher, CI and release (Phase 1 item 3).**
   The launcher's log now starts with the game's name, version and id; a

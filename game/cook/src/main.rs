@@ -857,6 +857,8 @@ fn run_capture(player: &Path, place: &Path, options: &Options) -> Result<Capture
         .arg("--log")
         .arg(&log)
         .env("RUSTUDIO_CACHE_DIR", options.out.join("cache"))
+        // The capture's ledger is evidence for the cook, not a bundle asset.
+        .env("RUSTUDIO_CAPTURE_LEDGER", options.out.join("logs").join("cook-capture-ledger.jsonl"))
         .env("RUSTUDIO_NO_STUDIO_FETCH", "1")
         .env("RUSTUDIO_CORE_SCRIPTS", "0")
         .env("RUSTUDIO_LIVE_DATA", "0")

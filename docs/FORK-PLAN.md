@@ -613,12 +613,16 @@ Plan:
 1. **Capture ledger.** Extend the existing content tracking
    (`content_track` / `CONTENT_STATUS` in `assets.rs`) with a small JSON
    ledger: id, version, status, size, hash, cache path, time, and the
-   requesting place/session. One record per id+version.
+   requesting place/session. One record per id+version. (As built: the
+   ledger keeps id, version, status, size, cache path, time and place; the
+   export computes the sha256 as it copies, so a play run does no hashing.)
 2. **Durable retention.** Add a setting “Keep downloaded assets for offline
    use” (default on). While on, assets are never auto-deleted. Offer an
    optional mirror to a user-chosen asset library folder so the bytes survive
    a cache clean. The per-game bundle's `cache/` is the canonical copy for a
-   shipped game.
+   shipped game. (As built: no toggle yet — the cache never evicts, so
+   retention is already the behaviour; the toggle and mirror belong with the
+   Phase 2 Asset Manager UI.)
 3. **Per-place export.** Add “Save assets for offline use” for the open place:
    copy every ledger entry for that place into `<bundle>/cache/assets`, write
    a manifest plus hashes, and report ids that failed or were never
