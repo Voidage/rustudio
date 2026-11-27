@@ -23,6 +23,7 @@ game/
   docs/BUNDLE.md      bundle format + manifest + environment contract
   docs/COOK.md        the cook tool: usage, report format, statuses
   docs/PACK.md        the content pack: layout, PlayerModule, gamepack
+  docs/RELEASE.md     releases, scripts/release-bundle.sh, CI
   docs/PHASE0.md      the Phase 0 spike: what ran, what it found
   build/              assembled bundles (generated; git-ignored)
 ```
@@ -60,7 +61,8 @@ game/target/release/rustudio-cook --place my_place.rbxlx \
 ```
 
 See [docs/COOK.md](docs/COOK.md): what it scans, the playthrough capture,
-`assets.json`, and `--signed-in` / `--local-assets`.
+`assets.json`, `--signed-in` / `--local-assets`, and `export` ("Save assets
+for offline use") for what the person captured while playing or editing.
 
 ## Build the content pack and test it
 
@@ -73,6 +75,16 @@ scripts/pack-smoke.sh                 # R15; --r6 for R6
 
 See [docs/PACK.md](docs/PACK.md): the layout the engine reads, the
 PlayerModule's camera/controls, and gamepack's manifest.
+
+## Release a game
+
+```sh
+scripts/release-bundle.sh --bundle game/build/my-game --version 1.0.0 \
+    --pack game/content --out dist
+```
+
+See [docs/RELEASE.md](docs/RELEASE.md): the version scheme, what goes into
+the archive, `release.json`, checksums, and `scripts/offline-smoke.sh`.
 
 ## Downstream unit tests
 

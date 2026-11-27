@@ -70,15 +70,35 @@ Phase 1 so far:
   head's transparent face texture is cleared on the client (the renderer
   hides the head otherwise) — see `game/docs/PACK.md`.
 
+- **F4 capture ledger + "Save assets for offline use".**
+  `crates/rustudio-core/src/assets.rs` appends one JSON line per settled
+  cloud request to `<cache>/capture-ledger.jsonl` (`cached` with size and
+  cache path, or `failed`), tagged with the place from
+  `RUSTUDIO_ASSET_PLACE`; the launcher sets it from the bundle entry, and
+  the player/editor set it when a place opens.
+  `rustudio-cook export --place FILE --out DIR` copies a place's ledger
+  entries into `<out>/cache/assets` and writes `offline-assets.json` with
+  sizes and sha256, reporting `missing` and `failed` ids. Unit-tested in
+  both crates; docs in `game/docs/COOK.md`.
+  The asset-manager local-copy idea (§18.19) is **not done**: it patches
+  the upstream upload UI, which §18.19 itself rates as not worth the
+  rebase surface; the ledger + export cover the offline goal.
+
+- **Launcher, CI and release (Phase 1 item 3).**
+  The launcher's log now starts with the game's name, version and id; a
+  failure before the player starts is written to `logs/latest.log` and shown
+  to the person (a native message box on windowless Windows, stderr
+  elsewhere). `.github/workflows/game.yml` tests the downstream workspace on
+  Linux/Windows/macOS and runs the Phase 0 offline bundle on Linux with
+  software Vulkan. `scripts/offline-smoke.sh` runs the Phase 0 smoke inside
+  `unshare -n` (or complains), and `scripts/release-bundle.sh` builds a
+  versioned, immutable `.tar.gz` with `release.json` (engine version,
+  upstream base, per-file sha256) and its `.sha256`. Docs:
+  `game/docs/RELEASE.md`.
+
 Not started (Phase 1 remaining):
 
-1. **F4 capture ledger + "Save assets for offline use"** (§8.4), including
-   the asset-manager local-copy idea in §18.19 (upstream 0.6's uploader
-   copies imported/uploaded files into the project's `assets/<id>.<ext>` +
-   manifest; the cook consumes that folder; publishing reuses
-   `rustudio_account`'s upload call).
-2. **Launcher logging/error UI, CI, release script and docs** (§14/§15).
-3. **Pack v1.1:** our own Animate with in-place KeyframeSequences (no cloud
+1. **Pack v1.1:** our own Animate with in-place KeyframeSequences (no cloud
    clip ids, so a cook is not needed for the default animations). v1 uses
    Studio's Animate and the cook's one online capture.
 
@@ -102,7 +122,9 @@ cargo test --workspace                       # upstream suite (incl. F2/F7)
 cargo test --manifest-path game/Cargo.toml   # launcher + cook + gamepack
 scripts/phase0-bundle.sh                     # player + bundle
 scripts/phase0-smoke.sh                      # 3 headless checks (offline)
+scripts/offline-smoke.sh                     # the same inside unshare -n
 scripts/pack-smoke.sh                        # pack: R15; add --r6
+scripts/release-bundle.sh --help             # versioned release archive
 game/build/phase0-game/phase0-game           # visual check — ask the user
 game/build/pack-smoke/pack-smoke             # pack visual check — ask
 ```

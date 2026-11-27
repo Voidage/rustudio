@@ -34,8 +34,8 @@ struct Manifest {
     manifest_version: Option<u32>,
     id: String,
     name: String,
+    /// Stamped into the log (§4/§15).
     #[serde(default)]
-    #[allow(dead_code)] // reserved for the log/version stamp (§4)
     version: Option<String>,
     /// The entry place, relative to the bundle root.
     entry: String,
@@ -134,19 +134,41 @@ fn main() {
     let code = match launch(started) {
         Ok(code) => code,
         Err(error) => {
-            eprintln!("{error}");
-            // The log is the only output on a windowless Windows build.
-            if let Ok(root) = bundle_root() {
-                let _ = fs::create_dir_all(root.join("logs"));
+            // The log is the only output on a windowless Windows build, so
+            // a failure is also shown to the person (FORK-PLAN §5.1).
+            let log_path = bundle_root().ok().map(|root| root.join("logs/latest.log"));
+            if let Some(log) = &log_path {
+                if let Some(dir) = log.parent() {
+                    let _ = fs::create_dir_all(dir);
+                }
                 let _ = fs::write(
-                    root.join("logs/latest.log"),
+                    log,
                     format!("[launcher +{:.3}s] error: {error}\n", started.elapsed().as_secs_f32()),
                 );
+            }
+            match log_path {
+                Some(log) => show_error(&format!("{error}\n\nThe log is {}", log.display())),
+                None => show_error(&error),
             }
             1
         }
     };
     process::exit(code);
+}
+
+fn show_error(error: &str) {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+        let text: Vec<u16> = error.encode_utf16().chain(std::iter::once(0)).collect();
+        let title: Vec<u16> = "The game could not start".encode_utf16().chain(std::iter::once(0)).collect();
+        // SAFETY: both strings are NUL-terminated and live through the call.
+        unsafe {
+            MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | MB_ICONERROR);
+        }
+    }
+    #[cfg(not(windows))]
+    eprintln!("{error}");
 }
 
 fn launch(started: Instant) -> Result<i32, String> {
@@ -179,7 +201,12 @@ fn launch(started: Instant) -> Result<i32, String> {
     if !plan.bundle.entry.is_file() {
         return Err(format!("entry place not found: {}", plan.bundle.entry.display()));
     }
-    say(format!("{} ({})", manifest.name, manifest.id));
+    say(format!(
+        "{} {} ({})",
+        manifest.name,
+        manifest.version.as_deref().unwrap_or("unversioned"),
+        manifest.id
+    ));
     for note in &plan.notes {
         say(note.clone());
     }
@@ -366,6 +393,9 @@ fn env_contract(bundle: &Bundle) -> Vec<(&'static str, OsString)> {
         ("RUSTUDIO_CORE_SCRIPTS", "0".into()),
         ("RUSTUDIO_LIVE_DATA", "0".into()),
         ("RUSTUDIO_CACHE_DIR", bundle.cache.clone().into_os_string()),
+        // The capture ledger records this game's asset requests against its
+        // own place, so "Save assets for offline use" exports exactly them.
+        ("RUSTUDIO_ASSET_PLACE", bundle.entry.clone().into_os_string()),
     ];
     if bundle.offline {
         vars.push(("RUSTUDIO_OFFLINE", "1".into()));
@@ -565,6 +595,7 @@ mod tests {
         assert_eq!(get("RUSTUDIO_LIVE_DATA"), Some(OsString::from("0")));
         assert_eq!(get("RUSTUDIO_OFFLINE"), Some(OsString::from("1")));
         assert_eq!(get("RUSTUDIO_CACHE_DIR"), Some(root.join("cache").into_os_string()));
+        assert_eq!(get("RUSTUDIO_ASSET_PLACE"), Some(root.join("place/game.rbxlx").into_os_string()));
         assert_eq!(get("RUSTUDIO_LOCAL_ASSETS"), Some(root.join("assets").into_os_string()));
         assert_eq!(get("RUSTUDIO_CONTENT_DIR"), Some(root.join("content/content").into_os_string()));
         assert_eq!(get("RUSTUDIO_STUDIO_DIR"), Some(root.join("content").into_os_string()));

@@ -1,0 +1,53 @@
+name: Game (downstream fork)
+
+# FORK-PLAN §14. The upstream ci.yml still tests the editor; this workflow
+# covers the fork's own workspace (game/) and the offline bundle. It is a
+# separate file so an upstream sync never has to merge it.
+
+on:
+  push:
+    branches: ['**']
+    paths-ignore: ['**.md', 'docs/**']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**']
+
+permissions:
+  contents: read
+
+jobs:
+  # Launcher, cook and gamepack tests on every platform; the release build
+  # proves the launcher/cook/gamepack still produce binaries.
+  downstream:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libasound2-dev libudev-dev
+      - run: cargo test --manifest-path game/Cargo.toml --locked
+      - run: cargo build --release --manifest-path game/Cargo.toml --locked
+
+  # The Phase 0 offline bundle on a Linux runner with software Vulkan
+  # (lavapipe): headless rendering needs a Vulkan device, not a display.
+  phase0-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libasound2-dev libudev-dev mesa-vulkan-drivers
+      - name: Build the bundle
+        run: scripts/phase0-bundle.sh
+      - name: Offline smoke (cache only, no network for the fixture's assets)
+        env:
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
+        run: scripts/phase0-smoke.sh

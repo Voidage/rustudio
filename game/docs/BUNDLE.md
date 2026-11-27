@@ -99,11 +99,15 @@ so a debug session can override any of them:
 | `RUSTUDIO_CONTENT_DIR` | `<pack>/content` (only when a pack resolves) |
 | `RUSTUDIO_STUDIO_DIR` | `<pack>` (only when it validates) |
 | `RUSTUDIO_OFFLINE` | `1` when the manifest's `offline` is true (F2) |
+| `RUSTUDIO_ASSET_PLACE` | `<bundle>/<entry>`: the capture ledger's place key (F4) |
 
 The launcher changes its working directory to the bundle root, wires the
 player's stdout and stderr to `logs/latest.log`, propagates the player's exit
 code (128 + signal on Unix when it was killed), and writes a final log line
-with the status and duration.
+with the status and duration. The log's first line is the game's name,
+version and id. A failure before the player starts is also shown to the
+person: a native message box on Windows (the build has no console) and
+stderr elsewhere, and the reason is written to `logs/latest.log`.
 
 ## Why spawn mode
 
