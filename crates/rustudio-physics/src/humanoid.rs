@@ -412,7 +412,10 @@ fn row(s: State) -> &'static [(Ev, State)] {
         S::Jumping => &[(Dead, S::Dead), (NoNeck, S::Dead), (Sit, S::Seated), (Stand, S::PlatformStanding), (NoFloor, S::Freefall), (AirLong, S::Freefall), (JumpDone, S::Freefall), (Timeout, S::Freefall)],
         S::Swimming => &[(Dead, S::Dead), (NoNeck, S::Dead), (Jump, S::Jumping), (Sit, S::Seated), (Stand, S::PlatformStanding), (NoWater, S::GettingUp)],
         S::Freefall => &[(Dead, S::Dead), (NoNeck, S::Dead), (Sit, S::Seated), (Stand, S::PlatformStanding), (Ladder, S::Climbing), (Landing, S::Landed), (Water, S::Swimming)],
-        S::Landed => &[(Dead, S::Dead), (NoNeck, S::Dead), (Sit, S::Seated), (Stand, S::PlatformStanding), (Tipped, S::FallingDown), (AirLong, S::Freefall), (Timeout, S::Running), (Water, S::Swimming)],
+        // Jump from Landed: a held jump hops again the frame the character
+        // touches down, as Roblox does (the Landed timer is 0.05 s, so
+        // without it a tap on touchdown is dropped).
+        S::Landed => &[(Dead, S::Dead), (NoNeck, S::Dead), (Jump, S::Jumping), (Sit, S::Seated), (Stand, S::PlatformStanding), (Tipped, S::FallingDown), (AirLong, S::Freefall), (Timeout, S::Running), (Water, S::Swimming)],
         S::Running => &[(Dead, S::Dead), (NoNeck, S::Dead), (Jump, S::Jumping), (Sit, S::Seated), (Stand, S::PlatformStanding), (Tipped, S::FallingDown), (Ladder, S::Climbing), (AirLong, S::Freefall), (Water, S::Swimming)],
         S::Climbing => &[(Dead, S::Dead), (NoNeck, S::Dead), (Jump, S::Jumping), (Sit, S::Seated), (Stand, S::PlatformStanding), (Tipped, S::FallingDown), (NoLadder, S::Running), (Water, S::Swimming)],
         S::Seated => &[(Dead, S::Dead), (NoNeck, S::Dead), (Jump, S::Jumping), (Unsit, S::Running), (Stand, S::PlatformStanding)],
@@ -1135,6 +1138,39 @@ pub fn off_slope(n: Vec3, v: Vec3) -> Vec3 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_landed_humanoid_jumps_immediately() {
+        let inp = FrameIn {
+            dt: H,
+            move_dir: Vec3::ZERO,
+            move_mag: 0.0,
+            walk_speed: 16.0,
+            auto_rotate: false,
+            camera_relative: None,
+            jump: true,
+            jump_velocity: 50.0,
+            sit: false,
+            has_seat: true,
+            platform_stand: false,
+            dead: false,
+            anchored: false,
+            floor: Some(floor(0.3)),
+            full_hip: 3.19,
+            cos_max_slope: 0.0175,
+            ladder: false,
+            in_water: false,
+            root_rot: Mat3::IDENTITY,
+            root_pos: Vec3::new(0.0, 3.19, 0.0),
+            root_v: Vec3::ZERO,
+            root_w: Vec3::ZERO,
+            torso_up: Some(Vec3::Y),
+        };
+        let mut hum = Humanoid { state: State::Landed, timer: LANDED_S, floor_target_y: 3.19, ..Default::default() };
+        let out = hum.frame(&inp);
+        assert_eq!(out.changed, Some((State::Landed, State::Jumping)));
+        assert_eq!(hum.state, State::Jumping);
+    }
 
     /// R15 default: AssemblyMass 14.2551 (measure/assembly-push-seat-death.md).
     const M: f32 = 14.2551;

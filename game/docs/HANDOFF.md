@@ -80,8 +80,13 @@ Phase 2 so far:
   the bundle's pack root and no session (so the local head/Animate assets
   are cached), auto-fetches Studio's run-time content for the pack on first
   use, and passes `--allow-missing` for test builds. The pack grew to ~53 MB
-  with `PlatformContent/` (studs, sky, terrain, fonts) and the character
-  sounds; without that a shipped game drew no studs and an invisible head.
+  with `PlatformContent/` (studs, sky, terrain, fonts), the character
+  sounds, and `content/avatar/heads|meshes` (the R6 head mesh; without it
+  R6 heads drew as cylinders). The cook also scans the pack's own Animate
+  models for their clip ids, so holding a walk does not depend on what the
+  idle capture happened to request. Jump: the pack's ControlModule now
+  keeps asking while Space is held and `Landed` accepts `Jump`, so holding
+  Space hops again the frame the character lands (Roblox behaviour).
 - **Release packaging — Linux done.** `scripts/release-bundle.sh` stages
   launcher + engine + game.json + place/assets + `cache/assets` + a built
   content pack, writes `release.json` (version, upstream base, engine

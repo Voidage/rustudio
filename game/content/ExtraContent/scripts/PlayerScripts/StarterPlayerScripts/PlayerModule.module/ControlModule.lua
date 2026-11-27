@@ -24,7 +24,7 @@ local function humanoidOf(player)
 end
 
 function ControlModule.new(player)
-	return setmetatable({ player = player, enabled = false, jumpHeld = false }, ControlModule)
+	return setmetatable({ player = player, enabled = false }, ControlModule)
 end
 
 function ControlModule:GetMoveVector()
@@ -53,11 +53,11 @@ function ControlModule:Enable(enable)
 				return
 			end
 			humanoid:Move(self:GetMoveVector(), true)
-			local held = UserInputService:IsKeyDown(Enum.KeyCode.Space)
-			if held and not self.jumpHeld then
+			-- Holding Space keeps asking to jump, as Roblox does: the
+			-- character hops again the moment it lands.
+			if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
 				humanoid.Jump = true
 			end
-			self.jumpHeld = held
 		end)
 	elseif not self.enabled then
 		if self.stepConnection then
