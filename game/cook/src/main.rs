@@ -45,6 +45,7 @@ use scan::Referrer;
 
 const USAGE: &str = "\
 usage: rustudio-cook --place FILE --out DIR [options]
+       rustudio-cook export --place FILE --out DIR [options]
 
   --place FILE       place to cook (.rbxl / .rbxlx)
   --out DIR          bundle directory to fill (cache/, place/, assets.json)
@@ -59,6 +60,19 @@ usage: rustudio-cook --place FILE --out DIR [options]
   --no-capture       static scan + fetch only, no playthrough
   --signed-in        use the saved Roblox session for private assets
   --allow-missing    exit 0 even when some assets could not be cooked
+  -h, --help         this text
+
+export: 'Save assets for offline use'. Copies every asset the capture ledger
+records for the place out of the asset cache into <out>/cache, writes
+<out>/offline-assets.json with hashes, and reports ids that failed or whose
+cache file is gone. No network, no playthrough.
+
+  --place FILE       the place those runs opened
+  --out DIR          bundle directory to fill (cache/, offline-assets.json)
+  --ledger FILE      capture ledger (default: $RUSTUDIO_CAPTURE_LEDGER, else
+                     <cache>/capture-ledger.jsonl)
+  --all              export every place's captures in the ledger
+  --allow-missing    exit 0 even when some assets could not be exported
   -h, --help         this text";
 
 #[derive(Debug)]
@@ -76,7 +90,26 @@ struct Options {
 }
 
 fn main() {
-    let options = match parse_args(env::args().skip(1).collect()) {
+    let mut args: Vec<String> = env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("export") {
+        args.remove(0);
+        let options = match parse_export_args(args) {
+            Ok(Some(options)) => options,
+            Ok(None) => return,
+            Err(error) => {
+                eprintln!("cook export: {error}\n\n{USAGE}");
+                std::process::exit(2);
+            }
+        };
+        match export(&options) {
+            Ok(code) => std::process::exit(code),
+            Err(error) => {
+                eprintln!("cook export: {error}");
+                std::process::exit(2);
+            }
+        }
+    }
+    let options = match parse_args(args) {
         Ok(Some(options)) => options,
         Ok(None) => return,
         Err(error) => {
@@ -91,6 +124,244 @@ fn main() {
             std::process::exit(2);
         }
     }
+}
+
+/// `rustudio-cook export` (FORK-PLAN §8.4 item 3): "Save assets for offline
+/// use" — the capture ledger's entries for a place, copied into a bundle.
+#[derive(Debug)]
+struct ExportOptions {
+    place: PathBuf,
+    out: PathBuf,
+    ledger: Option<PathBuf>,
+    all: bool,
+    allow_missing: bool,
+}
+
+fn parse_export_args(args: Vec<String>) -> Result<Option<ExportOptions>, String> {
+    let mut place = None;
+    let mut out = None;
+    let mut ledger = None;
+    let mut all = false;
+    let mut allow_missing = false;
+    let mut it = args.into_iter();
+    while let Some(arg) = it.next() {
+        let mut value = |flag: &str| it.next().ok_or_else(|| format!("{flag} needs a value"));
+        match arg.as_str() {
+            "-h" | "--help" => {
+                println!("{USAGE}");
+                return Ok(None);
+            }
+            "--place" => place = Some(PathBuf::from(value("--place")?)),
+            "--out" => out = Some(PathBuf::from(value("--out")?)),
+            "--ledger" => ledger = Some(PathBuf::from(value("--ledger")?)),
+            "--all" => all = true,
+            "--allow-missing" => allow_missing = true,
+            other => return Err(format!("unknown option {other}")),
+        }
+    }
+    Ok(Some(ExportOptions {
+        place: place.ok_or("--place is required")?,
+        out: out.ok_or("--out is required")?,
+        ledger,
+        all,
+        allow_missing,
+    }))
+}
+
+/// One line of `<cache>/capture-ledger.jsonl` (written by
+/// `rustudio_core::assets::capture_record`).
+#[derive(Debug, serde::Deserialize)]
+struct LedgerLine {
+    #[serde(default)]
+    time: u64,
+    #[serde(default)]
+    place: String,
+    id: u64,
+    #[serde(default)]
+    version: Option<u64>,
+    status: String,
+    #[serde(default)]
+    path: String,
+    #[serde(default)]
+    size: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct OfflineReport {
+    manifest_version: u32,
+    kind: &'static str,
+    place: String,
+    ledger: String,
+    summary: BTreeMap<String, u32>,
+    assets: Vec<OfflineRow>,
+}
+
+#[derive(Debug, Serialize)]
+struct OfflineRow {
+    id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<u64>,
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ledger_time: Option<u64>,
+}
+
+fn export(options: &ExportOptions) -> Result<i32, String> {
+    let place = options
+        .place
+        .canonicalize()
+        .map_err(|e| format!("{}: {e}", options.place.display()))?;
+    let place_key = place.display().to_string();
+    let ledger_path = options
+        .ledger
+        .clone()
+        .unwrap_or_else(assets::capture_ledger_path);
+    let text = fs::read_to_string(&ledger_path)
+        .map_err(|e| format!("{}: {e} (play the place first)", ledger_path.display()))?;
+    let cache = assets::cache_dir();
+    let bundle_cache = options.out.join("cache");
+    fs::create_dir_all(&options.out).map_err(|e| format!("{}: {e}", options.out.display()))?;
+
+    // (id, version) -> the entry the export will ship or report.
+    #[derive(Default)]
+    struct Seen {
+        cached: Option<LedgerLine>,
+        failed_time: Option<u64>,
+        failed_size: u64,
+    }
+    let mut seen: BTreeMap<(u64, Option<u64>), Seen> = BTreeMap::new();
+    let mut lines = 0usize;
+    for line in text.lines().filter(|l| !l.trim().is_empty()) {
+        let Ok(entry) = serde_json::from_str::<LedgerLine>(line) else { continue };
+        lines += 1;
+        if !options.all && entry.place != place_key {
+            continue;
+        }
+        let slot = seen.entry((entry.id, entry.version)).or_default();
+        match entry.status.as_str() {
+            "cached" => {
+                // A later capture of the same id+version replaces it.
+                let newer = slot
+                    .cached
+                    .as_ref()
+                    .is_none_or(|old| entry.time >= old.time);
+                if newer {
+                    slot.cached = Some(entry);
+                }
+            }
+            "failed" => {
+                let newer = slot.failed_time.is_none_or(|old| entry.time >= old);
+                if newer {
+                    slot.failed_time = Some(entry.time);
+                    slot.failed_size = entry.size;
+                }
+            }
+            _ => {}
+        }
+    }
+    if lines == 0 {
+        return Err(format!("{}: no ledger entries", ledger_path.display()));
+    }
+
+    let mut rows = Vec::new();
+    let mut summary: BTreeMap<String, u32> = BTreeMap::new();
+    for ((id, version), slot) in &seen {
+        let asset = AssetRef { id: *id, version: *version };
+        let id_str = match version {
+            Some(v) => format!("rbxassetid://{id}?version={v}"),
+            None => format!("rbxassetid://{id}"),
+        };
+        let mut row = OfflineRow {
+            id: id_str,
+            version: *version,
+            status: "missing",
+            file: None,
+            size: None,
+            sha256: None,
+            ledger_time: None,
+        };
+        if let Some(line) = &slot.cached {
+            row.ledger_time = Some(line.time);
+            // The recorded path first (it is what the play wrote); rebuilt
+            // from id+version when the ledger names a path this cache does
+            // not have (a different cache layout across versions).
+            let recorded = cache.join(&line.path);
+            let source = if recorded.is_file() {
+                recorded
+            } else {
+                cache::expected(&cache, asset)
+            };
+            if source.is_file() {
+                let dest = cache::expected(&bundle_cache, asset);
+                if let Some(dir) = dest.parent() {
+                    fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+                }
+                fs::copy(&source, &dest)
+                    .map_err(|e| format!("{} -> {}: {e}", source.display(), dest.display()))?;
+                let size = fs::metadata(&dest).map(|m| m.len()).unwrap_or(line.size);
+                let sha256 = cache::sha256_file(&dest)?;
+                let file = dest
+                    .strip_prefix(&options.out)
+                    .unwrap_or(&dest)
+                    .display()
+                    .to_string();
+                row.status = "exported";
+                row.file = Some(file);
+                row.size = Some(size);
+                row.sha256 = Some(sha256);
+            }
+        } else if slot.failed_time.is_some() {
+            row.status = "failed";
+            row.ledger_time = slot.failed_time;
+            row.size = (slot.failed_size > 0).then_some(slot.failed_size);
+        }
+        *summary.entry(row.status.to_string()).or_default() += 1;
+        rows.push(row);
+    }
+
+    let report = OfflineReport {
+        manifest_version: 1,
+        kind: "offline-assets",
+        place: place_key.clone(),
+        ledger: ledger_path.display().to_string(),
+        summary,
+        assets: rows,
+    };
+    let report_path = options.out.join("offline-assets.json");
+    let json = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
+    fs::write(&report_path, json).map_err(|e| format!("{}: {e}", report_path.display()))?;
+
+    let missing: u32 = ["missing", "failed"]
+        .iter()
+        .filter_map(|k| report.summary.get(*k))
+        .sum();
+    println!(
+        "export: {} asset(s) for {}: {}",
+        report.assets.len(),
+        place.display(),
+        report
+            .summary
+            .iter()
+            .map(|(k, v)| format!("{v} {k}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    println!("export: report {}", report_path.display());
+    if missing > 0 {
+        for row in report.assets.iter().filter(|r| r.status != "exported").take(20) {
+            println!("export: {} {}", row.status, row.id);
+        }
+        if !options.allow_missing {
+            return Ok(1);
+        }
+    }
+    Ok(0)
 }
 
 fn parse_args(args: Vec<String>) -> Result<Option<Options>, String> {
@@ -720,6 +991,10 @@ fn summary(rows: &BTreeMap<String, Row>) -> BTreeMap<String, u32> {
 mod tests {
     use super::*;
 
+    /// `cook` and `export` read the process-wide cache variables; tests that
+    /// use either take this first.
+    static ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn classification_covers_the_id_forms() {
         let dir = Path::new("/nonexistent-place");
@@ -771,6 +1046,7 @@ mod tests {
     /// writes from them.
     #[test]
     fn cook_imports_from_the_local_store_and_writes_a_report() {
+        let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
         use rustudio_core::__rbx::types::{ContentId, Variant};
         use rustudio_core::__rbx::{ustr, InstanceBuilder};
 
@@ -820,6 +1096,83 @@ mod tests {
         assert_eq!(report["assets"][0]["status"], "imported");
         assert_eq!(report["summary"]["imported"], 1);
         assert_eq!(report["problems"], serde_json::json!([]));
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// F4 end to end without a player or the network: a capture ledger with
+    /// a cached id, a failed id, a gone file and another place's asset.
+    #[test]
+    fn export_copies_a_places_captures_and_reports_the_rest() {
+        let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let root = std::env::temp_dir().join(format!(
+            "rustudio-cook-export-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let cache = root.join("cache");
+        fs::create_dir_all(cache.join("assets")).unwrap();
+        fs::write(cache.join("assets/7_vlatest.bin"), b"seven").unwrap();
+        fs::write(cache.join("assets/8_v3.bin"), b"eight").unwrap();
+        let place = root.join("level.rbxlx");
+        fs::write(&place, b"<roblox/>").unwrap();
+        let key = place.canonicalize().unwrap().display().to_string();
+        let ledger = root.join("capture-ledger.jsonl");
+        fs::write(
+            &ledger,
+            format!(
+                concat!(
+                    r#"{{"time":1,"place":"{key}","id":7,"version":null,"status":"cached","path":"assets/7_vlatest.bin","size":5}}"#, "\n",
+                    r#"{{"time":0,"place":"{key}","id":7,"version":null,"status":"failed","size":0}}"#, "\n",
+                    r#"{{"time":2,"place":"/elsewhere.rbxlx","id":8,"version":3,"status":"cached","path":"assets/8_v3.bin","size":5}}"#, "\n",
+                    r#"{{"time":3,"place":"{key}","id":9,"version":null,"status":"failed","size":0}}"#, "\n",
+                    r#"{{"time":4,"place":"{key}","id":10,"version":null,"status":"cached","path":"assets/10_vlatest.bin","size":5}}"#, "\n",
+                    "not json\n",
+                ),
+                key = key
+            ),
+        )
+        .unwrap();
+        std::env::set_var("RUSTUDIO_CACHE_DIR", &cache);
+
+        let out = root.join("bundle");
+        let options = ExportOptions {
+            place: place.clone(),
+            out: out.clone(),
+            ledger: Some(ledger.clone()),
+            all: false,
+            allow_missing: false,
+        };
+        assert_eq!(export(&options).unwrap(), 1, "failures and a gone file");
+        assert_eq!(fs::read(out.join("cache/assets/7_vlatest.bin")).unwrap(), b"seven");
+        assert!(!out.join("cache/assets/8_v3.bin").exists(), "another place's asset");
+        let report: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(out.join("offline-assets.json")).unwrap()).unwrap();
+        assert_eq!(report["kind"], "offline-assets");
+        assert_eq!(report["summary"]["exported"], 1);
+        assert_eq!(report["summary"]["failed"], 1);
+        assert_eq!(report["summary"]["missing"], 1);
+        assert_eq!(report["assets"].as_array().unwrap().len(), 3);
+        let exported = report["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == "rbxassetid://7")
+            .unwrap()
+            .clone();
+        assert_eq!(exported["status"], "exported");
+        assert_eq!(exported["file"], "cache/assets/7_vlatest.bin");
+        assert_eq!(exported["size"], 5);
+        assert_eq!(exported["sha256"].as_str().unwrap().len(), 64);
+
+        // --all takes every place; --allow-missing still writes the report.
+        let all = ExportOptions { all: true, allow_missing: true, ..options };
+        assert_eq!(export(&all).unwrap(), 0);
+        assert!(out.join("cache/assets/8_v3.bin").is_file());
+
+        std::env::remove_var("RUSTUDIO_CACHE_DIR");
         fs::remove_dir_all(&root).unwrap();
     }
 }

@@ -49,10 +49,14 @@ pub fn content_failures_since(cursor: u64) -> (u64,Vec<String>) {
     (f.0,f.1.iter().filter(|(seq,_)|*seq>cursor).map(|(_,id)|id.clone()).collect())
 }
 pub fn content_track(id: &str, status: u8) {
+    let mut settled = false;
     if let Ok(mut s)=CONTENT_STATUS.lock(){
         let old=s.insert(content_key(id),status);
         if old!=Some(status) {
             CONTENT_STATUS_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            // A cloud asset that just became ready or was refused is a
+            // capture-ledger entry (FORK-PLAN §8.4).
+            settled = status==2 || status==3;
         }
         if status==3 && old!=Some(3) && asset_ref(id).is_some() {
             let mut f=CONTENT_FAILURES.lock().unwrap_or_else(|e|e.into_inner());
@@ -60,6 +64,7 @@ pub fn content_track(id: &str, status: u8) {
             if f.1.len()>256 {f.1.remove(0);}
         }
     }
+    if settled { capture_record(id, status); }
 }
 fn track_fetch(id: &str, result: &Fetch) {
     content_track(id,match result {Fetch::Ready(_)=>2,Fetch::Pending=>1,Fetch::Unavailable(_)=>3});
@@ -92,6 +97,93 @@ pub fn cache_dir() -> PathBuf {
         }
     }
     crate::paths::cache().join("rustudio")
+}
+
+/// The capture ledger (FORK-PLAN §8.4): one JSON line per cloud asset a run
+/// saw settle — `cached` with its size and cache path once the bytes are on
+/// disk, `failed` when the request was refused. `rustudio-cook export` reads
+/// it to copy a place's assets into a game bundle for offline use.
+/// `RUSTUDIO_CAPTURE_LEDGER=FILE` names the file, else
+/// `<cache>/capture-ledger.jsonl`. (Not the upload ledger that
+/// `RUSTUDIO_ASSET_LEDGER` names: that one maps an upload id to its source
+/// file.)
+pub fn capture_ledger_path() -> PathBuf {
+    std::env::var_os("RUSTUDIO_CAPTURE_LEDGER")
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| cache_dir().join("capture-ledger.jsonl"))
+}
+
+/// The place a run requests assets for, as the ledger records it:
+/// `RUSTUDIO_ASSET_PLACE` (the launcher sets it) else what the player or
+/// editor set when a place opened. Canonical when the file exists.
+static CAPTURE_PLACE: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+pub fn set_capture_place(place: Option<PathBuf>) {
+    let place = place.map(|p| p.canonicalize().unwrap_or(p));
+    if let Ok(mut g) = CAPTURE_PLACE.lock() {
+        *g = place;
+    }
+}
+
+fn capture_place() -> String {
+    let place = std::env::var_os("RUSTUDIO_ASSET_PLACE")
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| CAPTURE_PLACE.lock().ok().and_then(|g| g.clone()));
+    match place {
+        Some(p) => p.canonicalize().unwrap_or(p).display().to_string(),
+        None => String::new(),
+    }
+}
+
+/// One settled cloud request into the capture ledger. Statuses 2 and 3 can
+/// alternate (a success, then a failed retry); a repeated status is not
+/// written again in the same process.
+fn capture_record(id: &str, status: u8) {
+    let Some(a) = asset_ref(id) else { return };
+    let key = content_key(id);
+    static LAST: Mutex<Option<HashMap<String, u8>>> = Mutex::new(None);
+    match LAST.lock() {
+        Ok(mut g) => {
+            let map = g.get_or_insert_with(HashMap::new);
+            if map.get(&key) == Some(&status) {
+                return;
+            }
+            map.insert(key, status);
+        }
+        Err(_) => return,
+    }
+    let (status, path, size) = if status == 2 {
+        // The cache file is what an export can copy; a local-store or upload
+        // source with no cache file is not a capture.
+        let path = cache_path(a);
+        let Ok(meta) = std::fs::metadata(&path) else { return };
+        let relative = path.strip_prefix(cache_dir()).unwrap_or(&path);
+        ("cached", relative.display().to_string(), meta.len())
+    } else {
+        ("failed", String::new(), 0)
+    };
+    let line = serde_json::json!({
+        "time": SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        "place": capture_place(),
+        "id": a.id,
+        "version": a.version,
+        "status": status,
+        "path": path,
+        "size": size,
+    });
+    use std::io::Write;
+    let file = capture_ledger_path();
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&file) {
+        let _ = writeln!(f, "{line}");
+    }
 }
 
 /// `RUSTUDIO_OFFLINE=1` (FORK-PLAN §8.3): serve the disk cache and the
@@ -3039,6 +3131,9 @@ pub fn composite_over(under: Option<&Rgba>, over: Option<&Rgba>) -> Option<Rgba>
 mod tests {
     use super::*;
 
+    /// Tests that set the process-wide cache variables take this first.
+    static ENV: Mutex<()> = Mutex::new(());
+
     /// The unit box is centred on the mesh's bounds; their centre comes
     /// back so a CharacterMesh can sit by the mesh's own origin.
     #[test]
@@ -3612,6 +3707,7 @@ mod tests {
     /// never schedules a download or waits for a session.
     #[test]
     fn offline_mode_serves_cache_and_local_store_only() {
+        let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::env::temp_dir().join(format!("rustudio-offline-{}", std::process::id()));
         let cache = root.join("cache");
         let store = root.join("store");
@@ -3650,6 +3746,54 @@ mod tests {
 
         std::env::remove_var("RUSTUDIO_OFFLINE");
         std::env::remove_var("RUSTUDIO_LOCAL_ASSETS");
+        std::env::remove_var("RUSTUDIO_CACHE_DIR");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// F4: a cloud asset settling writes one capture-ledger line per status —
+    /// `cached` with its cache path once the bytes are on disk, `failed` when
+    /// refused — and once per status in a process; local paths are not
+    /// captured.
+    #[test]
+    fn capture_ledger_records_settled_cloud_assets() {
+        let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let root = std::env::temp_dir().join(format!("rustudio-capture-{}", std::process::id()));
+        let cache = root.join("cache");
+        std::fs::create_dir_all(cache.join("assets")).unwrap();
+        let place = root.join("level.rbxlx");
+        std::fs::write(&place, b"<roblox/>").unwrap();
+        let ledger = root.join("capture-ledger.jsonl");
+        std::env::set_var("RUSTUDIO_CACHE_DIR", &cache);
+        std::env::set_var("RUSTUDIO_CAPTURE_LEDGER", &ledger);
+        std::env::set_var("RUSTUDIO_ASSET_PLACE", &place);
+        std::fs::write(cache.join("assets/424242_v3.bin"), b"five!").unwrap();
+
+        content_track("rbxassetid://424242?version=3", 2);
+        content_track("rbxassetid://424242?version=3", 2);
+        content_track("rbxassetid://999", 3);
+        content_track("/tmp/not-a-cloud-asset.png", 2);
+
+        let text = std::fs::read_to_string(&ledger).unwrap();
+        let lines: Vec<serde_json::Value> = text
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        assert_eq!(lines.len(), 2, "{text}");
+        let cached = &lines[0];
+        assert_eq!(cached["id"], 424242);
+        assert_eq!(cached["version"], 3);
+        assert_eq!(cached["status"], "cached");
+        assert_eq!(cached["size"], 5);
+        assert_eq!(cached["path"], "assets/424242_v3.bin");
+        assert_eq!(cached["place"], place.canonicalize().unwrap().display().to_string());
+        assert!(cached["time"].as_u64().is_some());
+        let failed = &lines[1];
+        assert_eq!(failed["id"], 999);
+        assert_eq!(failed["version"], serde_json::Value::Null);
+        assert_eq!(failed["status"], "failed");
+
+        std::env::remove_var("RUSTUDIO_ASSET_PLACE");
+        std::env::remove_var("RUSTUDIO_CAPTURE_LEDGER");
         std::env::remove_var("RUSTUDIO_CACHE_DIR");
         let _ = std::fs::remove_dir_all(&root);
     }

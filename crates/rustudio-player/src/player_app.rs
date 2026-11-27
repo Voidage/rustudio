@@ -424,6 +424,9 @@ pub fn run() -> eframe::Result<()> {
     if let Some(place) = place_context {
         rustudio_account::session::set_place_context(place);
     }
+    // The capture ledger (FORK-PLAN §8.4) records this run's assets against
+    // the place it opened.
+    rustudio_core::assets::set_capture_place(open.clone());
     rustudio_core::load_trace::init();
     rustudio_core::crash::install();
     let _ = rustudio_engine::runtime::process_start();

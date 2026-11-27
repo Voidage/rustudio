@@ -94,6 +94,53 @@ The cook exits 1 when `problems` is non-empty (a failed asset, a live
 thumbnail, an unreadable local file, a crashed capture), 2 for bad arguments
 or I/O errors. `--allow-missing` keeps the report but exits 0.
 
+## Save assets for offline use (export, F4)
+
+Everything Play downloads is already in the disk cache, so an asset is usable
+offline on the machine that played it. The capture ledger records which
+assets a place asked for: one JSON line per settled cloud request in
+`<cache>/capture-ledger.jsonl` (`RUSTUDIO_CAPTURE_LEDGER` names another
+file), with id, version, status, size, cache path, time and the place
+(`RUSTUDIO_ASSET_PLACE`, set by the launcher and by the player/editor when a
+place opens). Local and `rbxasset://` content is not captured; a failed
+download is recorded too, so an export can fail loudly.
+
+```sh
+game/target/release/rustudio-cook export \
+    --place my_place.rbxlx \
+    --out game/build/my-game
+```
+
+This copies every ledger entry for that place out of the asset cache into
+`<out>/cache/assets/<id>_v<version>.bin` (the layout the engine reads), and
+writes `<out>/offline-assets.json`:
+
+```json
+{
+  "manifest_version": 1,
+  "kind": "offline-assets",
+  "place": "/path/to/my_place.rbxlx",
+  "ledger": "/home/me/.cache/rustudio/capture-ledger.jsonl",
+  "summary": { "exported": 12, "failed": 1, "missing": 0 },
+  "assets": [
+    { "id": "rbxassetid://900000001", "status": "exported",
+      "file": "cache/assets/900000001_vlatest.bin",
+      "size": 1234, "sha256": "…", "ledger_time": 1795800000 }
+  ]
+}
+```
+
+Statuses: `exported` (bytes copied and hashed), `missing` (the ledger says
+cached but the file is gone), `failed` (the request was refused; no cache
+file). It exits 1 when anything is not exported, 2 on bad arguments or a
+missing ledger/invalid place. `--ledger FILE` reads another ledger and
+`--all` exports every place's captures in it.
+
+This is the post-play companion to the cook: the cook starts from a clean
+cache and plays the place itself; `export` keeps what the person captured
+while editing or playing and pours it into an existing bundle. No network
+call is made.
+
 ## After the cook
 
 The bundle still needs its launcher, player, `game.json` and content pack;

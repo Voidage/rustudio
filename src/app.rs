@@ -850,6 +850,9 @@ impl Editor {
         }
         match Document::open(&path) {
             Ok(d) => {
+                // The capture ledger (FORK-PLAN §8.4) records this place's
+                // assets, for "Save assets for offline use".
+                rustudio_core::assets::set_capture_place(Some(path.clone()));
                 let n = d.dom.descendants().count();
                 rustudio_core::load_trace::mark("document built");
                 self.set_document(d);
@@ -883,6 +886,9 @@ impl Editor {
                     .map(|p| format!(", place {}", p.display()))
                     .unwrap_or_else(|| ", no place file (an empty DataModel under it)".into());
                 let synced = st.map.len();
+                // The capture ledger records assets against the project's
+                // place file (FORK-PLAN §8.4).
+                rustudio_core::assets::set_capture_place(st.place.clone());
                 self.set_document(doc);
                 crate::project_config::set_active(Some(st.config.clone()));
                 self.project = Some(st);

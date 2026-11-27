@@ -705,7 +705,7 @@ teleports. Every patch is listed here and in `git log`.
 | F1 | `crates/rustudio-player/src/player_app.rs` | `run_with_args`, window title/icon from env | 20–40 lines | Maybe | 2 (optional) |
 | F2 | `crates/rustudio-core/src/assets.rs`, `rustudio_settings.rs` | Offline mode: local-first, no network scheduling | 30–60 lines | Yes | 1 |
 | F3 | `crates/rustudio-core/src/default_scripts.rs` | `RUSTUDIO_ENGINE_CONTENT_DIR` as the first content root | 10–20 lines | Yes | 2 (optional) |
-| F4 | `crates/rustudio-core/src/assets.rs` (+ CLI) | Asset capture ledger + requested-ID manifest/export (the cache already persists the bytes) | 40–80 lines | Yes | 1 (cook aid) |
+| F4 | `crates/rustudio-core/src/assets.rs`, `player_app.rs` / `src/app.rs` (2-line place hooks) (+ `rustudio-cook export`) | Asset capture ledger + requested-ID manifest/export (the cache already persists the bytes) | 40–80 lines | Yes | 1 (done) |
 | F5 | `crates/rustudio-engine/src/domains/data_local.rs`, new module | File-backed local DataStores | 150–300 lines | Maybe | 2 |
 | F6 | `crates/rustudio-player/src/play_teleport.rs` | Local multi-place teleports | larger | No | 3 |
 | F7 | `crates/rustudio-engine/src/library.luau` (plus `anim_tracks.rs` / `anim_replicate.rs` only if needed) | Direct KeyframeSequence / AnimationClip loading, no upload or asset id; stable clip ids for replication | 20–80 lines | Maybe (upstream targets API parity; likely fork-only) | 1 (load), 2 (replication) |
@@ -717,6 +717,12 @@ F0 is downstream-only: it adds `game/` and the Phase 0 scripts, and does not
 touch upstream code. U1 (sound autoplay) was an upstream bug fix, not fork
 behaviour; it merged as upstream PR **#46** (`ade1ff5`) and the local patch
 was dropped in that sync (§2.1). F2 is now upstream PR **#47**.
+
+F4 is in: `assets.rs` writes `<cache>/capture-ledger.jsonl` from
+`content_track` (the one place every settled cloud request passes), and
+`player_app.rs` / `app.rs` pass the opened place to it; the export itself is
+`rustudio-cook export` (downstream). The launcher sets
+`RUSTUDIO_ASSET_PLACE` for a shipped game.
 
 Rules:
 
@@ -956,7 +962,7 @@ Update this table on every sync.
 | 2026-11-26 | `3f1ada8` (main; `Cargo.toml` 0.5.2) | plan | — | Initial plan |
 | 2026-11-26 | `3f1ada8` (main; `Cargo.toml` 0.5.2) | Phase 0 | F0, U1 | Phase 0 spike on Linux; U1 is upstream PR #46 |
 | 2026-11-26 | `7c2ce14` (main; `Cargo.toml` 0.6.0) | Phase 1 | F0, U1 | Synced 0.5.2 → 0.6.0 (Animation Editor); rebase + range-diff identical; workspace tests and Phase 0 smoke pass. U1 still open as PR #46. |
-| 2026-11-26 | `ade1ff5` (main; `Cargo.toml` 0.6.0) | Phase 1 | F0, F2, F7 | U1 (PR #46) merged upstream; local U1 dropped by rebase. F2 PR #47 open upstream. Rebased; gate rerun. |
+| 2026-11-26 | `ade1ff5` (main; `Cargo.toml` 0.6.0) | Phase 1 | F0, F2, F4, F7 | U1 (PR #46) merged upstream; local U1 dropped by rebase. F2 PR #47 open upstream. F4 ledger + `rustudio-cook export` done. Rebased; gate rerun. |
 
 ---
 
