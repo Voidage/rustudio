@@ -218,6 +218,19 @@ impl eframe::App for PlayerApp {
     }
 }
 
+/// The window title: the bundle's `window.title` or game name from
+/// `RUSTUDIO_WINDOW_TITLE` (the launcher sets it), else the generic player
+/// name. A blank value is ignored rather than leaving an unnamed window.
+fn window_title() -> String {
+    window_title_from(std::env::var("RUSTUDIO_WINDOW_TITLE").ok().as_deref())
+}
+
+fn window_title_from(env: Option<&str>) -> String {
+    env.filter(|t| !t.trim().is_empty())
+        .unwrap_or("rustudio-player")
+        .to_string()
+}
+
 pub fn run() -> eframe::Result<()> {
     let argv: Vec<String> = std::env::args().collect();
     let mut open: Option<PathBuf> = None;
@@ -509,7 +522,8 @@ pub fn run() -> eframe::Result<()> {
         wgpu_options,
         ..Default::default()
     };
-    let result = eframe::run_native("rustudio-player", options, Box::new(move |cc| {
+    let title = window_title();
+    let result = eframe::run_native(&title, options, Box::new(move |cc| {
         use eframe::egui_wgpu::wgpu::rwh::{HasWindowHandle, RawWindowHandle};
         let wayland = cc.window_handle().ok().map(|h| matches!(h.as_raw(), RawWindowHandle::Wayland(_)));
         Ok(Box::new(PlayerApp::new(&cc.egui_ctx, cc.wgpu_render_state.clone(), wayland, open, run, demo)))
@@ -525,4 +539,17 @@ fn window_arg(argv: &[String]) -> Option<(u32, u32)> {
     let i = argv.iter().position(|a| a == "--window")?;
     let (w, h) = argv.get(i + 1)?.split_once('x')?;
     Some((w.parse().ok()?, h.parse().ok()?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::window_title_from;
+
+    #[test]
+    fn window_title_comes_from_the_bundle_or_stays_generic() {
+        assert_eq!(window_title_from(None), "rustudio-player");
+        assert_eq!(window_title_from(Some("")), "rustudio-player");
+        assert_eq!(window_title_from(Some("   ")), "rustudio-player");
+        assert_eq!(window_title_from(Some("My Game")), "My Game");
+    }
 }

@@ -53,7 +53,7 @@ different working directory still works.
 | Field | Required | Meaning |
 |---|---|---|
 | `manifest_version` | yes | Format version; this launcher reads `1` and rejects others. |
-| `id`, `name` | yes | Identity; both are logged at launch. `name` is the window title after F1. |
+| `id`, `name` | yes | Identity; both are logged at launch. `name` is the window title when `window.title` is absent (F1). |
 | `version` | no | Recorded in the manifest; used by release tooling. |
 | `engine` | no | Engine/base description; informational. |
 | `entry` | yes | Entry place, relative to the bundle. |
@@ -99,6 +99,7 @@ so a debug session can override any of them:
 | `RUSTUDIO_LIVE_DATA` | `0` |
 | `RUSTUDIO_CACHE_DIR` | `<bundle>/cache` |
 | `RUSTUDIO_DATASTORE_DIR` | `<bundle>/datastores` (F5) |
+| `RUSTUDIO_WINDOW_TITLE` | `window.title`, else the game name (F1) |
 | `RUSTUDIO_LOCAL_ASSETS` | `<bundle>/assets` (only if it exists) |
 | `RUSTUDIO_CONTENT_DIR` | `<pack>/content` (only when a pack resolves) |
 | `RUSTUDIO_STUDIO_DIR` | `<pack>` (only when it validates) |

@@ -29,6 +29,9 @@ Phase 2 so far:
   API; there is no separate save API. The directory also enables DataStores
   for a local `PlaceId 0` game, which the editor rule otherwise refuses.
   Test: `datastores_survive_a_restart`.
+- **F1 window title — done (icon optional).** The launcher sets
+  `RUSTUDIO_WINDOW_TITLE` from `window.title` (else the game name); the
+  player uses it as the window title, falling back to `rustudio-player`.
 - **U3 (not Phase 2):** attachment selection, gizmos and property frames
   landed as a separate upstream-bound commit.
 

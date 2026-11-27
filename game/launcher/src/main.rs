@@ -87,7 +87,6 @@ enum ContentSpec {
 #[derive(Debug, Deserialize, PartialEq)]
 struct Window {
     #[serde(default)]
-    #[allow(dead_code)] // RUSTUDIO_WINDOW_TITLE arrives with F1
     title: Option<String>,
     #[serde(default)]
     width: Option<u32>,
@@ -123,6 +122,8 @@ struct Bundle {
     assets: Option<PathBuf>,
     /// Where the engine's local DataStore backend writes records (F5).
     datastores: PathBuf,
+    /// `window.title`, else the game name (F1).
+    window_title: String,
     content: Content,
     /// The manifest's offline promise: set `RUSTUDIO_OFFLINE=1`.
     offline: bool,
@@ -288,6 +289,11 @@ fn resolve(manifest: &Manifest, root: &Path, is_dir: &dyn Fn(&Path) -> bool) -> 
         manifest.datastores.as_deref().unwrap_or("datastores"),
         "datastores",
     )?;
+    let window_title = manifest
+        .window
+        .as_ref()
+        .and_then(|w| w.title.clone())
+        .unwrap_or_else(|| manifest.name.clone());
 
     let mut notes = Vec::new();
     let content = match &manifest.content {
@@ -304,7 +310,7 @@ fn resolve(manifest: &Manifest, root: &Path, is_dir: &dyn Fn(&Path) -> bool) -> 
     if offline {
         notes.push("offline: true (RUSTUDIO_OFFLINE=1)".into());
     }
-    Ok(Plan { bundle: Bundle { root: root.to_path_buf(), entry, engine, cache, assets, datastores, content, offline }, notes })
+    Ok(Plan { bundle: Bundle { root: root.to_path_buf(), entry, engine, cache, assets, datastores, window_title, content, offline }, notes })
 }
 
 fn resolve_content_mode(
@@ -405,6 +411,8 @@ fn env_contract(bundle: &Bundle) -> Vec<(&'static str, OsString)> {
         ("RUSTUDIO_CACHE_DIR", bundle.cache.clone().into_os_string()),
         // F5: the local DataStore backend persists game records here.
         ("RUSTUDIO_DATASTORE_DIR", bundle.datastores.clone().into_os_string()),
+        // F1: the player's window title.
+        ("RUSTUDIO_WINDOW_TITLE", bundle.window_title.clone().into()),
         // The capture ledger records this game's asset requests against its
         // own place, so "Save assets for offline use" exports exactly them.
         ("RUSTUDIO_ASSET_PLACE", bundle.entry.clone().into_os_string()),
@@ -583,6 +591,7 @@ mod tests {
         assert_eq!(plan.bundle.cache, root.join("cache"));
         assert_eq!(plan.bundle.assets, Some(root.join("assets")));
         assert_eq!(plan.bundle.datastores, root.join("datastores"));
+        assert_eq!(plan.bundle.window_title, "My Game");
     }
 
     #[test]
@@ -595,6 +604,7 @@ mod tests {
             cache: root.join("cache"),
             assets: Some(root.join("assets")),
             datastores: root.join("datastores"),
+            window_title: "My Game".into(),
             content: Content::Bundled {
                 content_dir: Some(root.join("content/content")),
                 studio_dir: Some(root.join("content")),
@@ -610,6 +620,7 @@ mod tests {
         assert_eq!(get("RUSTUDIO_OFFLINE"), Some(OsString::from("1")));
         assert_eq!(get("RUSTUDIO_CACHE_DIR"), Some(root.join("cache").into_os_string()));
         assert_eq!(get("RUSTUDIO_DATASTORE_DIR"), Some(root.join("datastores").into_os_string()));
+        assert_eq!(get("RUSTUDIO_WINDOW_TITLE"), Some(OsString::from("My Game")));
         assert_eq!(get("RUSTUDIO_ASSET_PLACE"), Some(root.join("place/game.rbxlx").into_os_string()));
         assert_eq!(get("RUSTUDIO_LOCAL_ASSETS"), Some(root.join("assets").into_os_string()));
         assert_eq!(get("RUSTUDIO_CONTENT_DIR"), Some(root.join("content/content").into_os_string()));
@@ -626,6 +637,7 @@ mod tests {
             cache: root.join("cache"),
             assets: None,
             datastores: root.join("datastores"),
+            window_title: "X".into(),
             content: Content::None,
             offline: false,
         };

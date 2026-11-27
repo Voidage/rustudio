@@ -210,7 +210,8 @@ Why this is the right default:
 - It can be replaced by a single binary later without changing the bundle
   format.
 
-Trade-offs: two binaries, and the window title stays generic until F1.
+Trade-offs: two binaries. F1's `RUSTUDIO_WINDOW_TITLE` (set from the
+manifest) gives each game its own title without in-process mode.
 
 On Windows the launcher should use `windows_subsystem = "windows"` so spawning
 does not flash a console. The player already has that attribute.
@@ -247,7 +248,7 @@ development.
 | `RUSTUDIO_STUDIO_DIR` | resolved pack root | Only set when a pack resolved; otherwise unset for fallback. |
 | `RUSTUDIO_CONTENT_DIR` | resolved pack root/content | Same. |
 | `RUSTUDIO_OFFLINE` | `1` | After F2: no background downloads, local store first. |
-| `RUSTUDIO_WINDOW_TITLE` | manifest title | After F1 only. |
+| `RUSTUDIO_WINDOW_TITLE` | `window.title`, else the game name | F1: the player's window title. |
 | `RUSTUDIO_ALLOW_LOCAL_CONTENT` | unset | Prefer the `.rustudio-local-content` marker when a game needs relative files. |
 | `RUSTUDIO_ASSET_REPORT` | test only | Writes the image/mesh audit JSON. |
 
@@ -338,10 +339,12 @@ Work items:
    state signals. Embed KeyframeSequences in the Animate model and register
    them at runtime, or point at IDs bundled in the cache. This avoids
    depending on any external animation asset.
-3. **Rig.** The engine's blocky R15/R6 fallback is usable on day one. A nicer
-   default rig can be authored in the editor and saved under the names above.
-4. **Fonts, materials, sounds.** Optional; the engine has fallbacks. Add
-   assets as needed for visual quality.
+3. **Rig.** Use Studio's R15/R6 body files as-is (the pack fetches them
+   locally); the engine's blocky fallback covers a missing pack. No custom
+   default rig is planned — a game that wants one ships its own, outside the
+   pack.
+4. **Fonts, materials, sounds.** Optional engine fallbacks. The default pack
+   does not need to replace them; a game may add its own.
 5. **Keep it small.** This pack is part of the game runtime and should be
    versioned. It can be bundled or downloaded once.
 
@@ -725,7 +728,7 @@ teleports. Every patch is listed here and in `git log`.
 | ID | File(s) | Purpose | Est. size | Upstreamable | Phase |
 |---|---|---|---|---|---|
 | F0 | `game/`, `scripts/phase0-*.sh`, `.gitignore` | Downstream scaffold: spawn launcher, bundle format, Phase 0 fixture, cook tool (new paths; no upstream code) | — | n/a | 0 (cook: 1) |
-| F1 | `crates/rustudio-player/src/player_app.rs` | `run_with_args`, window title/icon from env | 20–40 lines | Maybe | 2 (optional) |
+| F1 | `crates/rustudio-player/src/player_app.rs` | Window title from `RUSTUDIO_WINDOW_TITLE` (`run_with_args`/icon still optional) | 20–40 lines | Maybe | 2 (title done; icon optional) |
 | F2 | `crates/rustudio-core/src/assets.rs`, `rustudio_settings.rs` | Offline mode: local-first, no network scheduling | 30–60 lines | Yes | 1 |
 | F3 | `crates/rustudio-core/src/default_scripts.rs` | `RUSTUDIO_ENGINE_CONTENT_DIR` as the first content root | 10–20 lines | Yes | 2 (optional) |
 | F4 | `crates/rustudio-core/src/assets.rs`, `player_app.rs` / `src/app.rs` (2-line place hooks) (+ `rustudio-cook export`) | Asset capture ledger + requested-ID manifest/export (the cache already persists the bytes) | 40–80 lines | Yes | 1 (done) |
@@ -813,7 +816,7 @@ movement/camera and default animation.
 
 - F5 local, file-backed DataStores (the same `DataStoreService` API; no new
   save API).
-- F1 window title/icon (or accept generic title).
+- F1 window title (done); the icon is optional.
 - F3 clean engine content root.
 - If/when upstream animation authoring tools land, their preview reuses the
   same direct playback path; no separate integration is required.
@@ -824,7 +827,9 @@ movement/camera and default animation.
   reuse, and update.
 - Studio UI actions for Build/Update Content Pack (wraps `gamepack`); this
   can slip to Phase 3 if the CLI is enough.
-- Content pack polish: fonts, materials, nicer rig.
+- Optional content pack additions only if a game needs them. The default
+  pack keeps Studio's R15/R6 bodies, Animate and font fallbacks unchanged;
+  no custom rig is planned.
 - Game-scoped config/crash/log paths (F6 candidate).
 - Offline service messages, “allow network” opt-in.
 - Cross-platform packaging, signing/notarization as distribution requires.
@@ -1133,4 +1138,4 @@ offline test. §8.4 automates this with a per-place ledger and export.
 | `RUSTUDIO_GAPS` | `telemetry.rs` | Local JSON; tests only. |
 | `RUSTUDIO_FIXED_DT` / `--fixed-dt` | `sim_clock` | Deterministic tests. |
 | `RUSTUDIO_OFFLINE` | F2 (new) | Offline asset behaviour. |
-| `RUSTUDIO_WINDOW_TITLE` | F1 (new) | Player window title. |
+| `RUSTUDIO_WINDOW_TITLE` | `player_app.rs` | Player window title (F1). |
