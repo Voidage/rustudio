@@ -55,35 +55,32 @@ Phase 1 so far:
   `game/fixtures/f7/acceptance.luau` (run with
   `--luau client game/fixtures/f7/acceptance.luau@5`; see its README).
 
+- **Content pack v1 + `gamepack`.** `game/content` has our
+  `PlayerScriptsLoader`, the PlayerModule (`GetControls`/`GetCameras`), a
+  third-person CameraModule and a ControlModule (WASD/arrows ->
+  `Humanoid:Move`, Space jump). R6/R15 bodies and Animate come from
+  `scripts/fetch-studio-avatar.sh` (local Studio files, git-ignored; the
+  licensing note is in `game/docs/PACK.md`). `gamepack` builds a
+  deterministic, versioned, hashed pack (`build`/`update`/`verify`/
+  `publish`); `scripts/pack-smoke.sh [--r6]` passes for both rigs. The
+  user's offline playtest confirmed walking, Animate, right-drag rotation,
+  wheel zoom, jump and a visible head. Two engine facts are worked around
+  in the module: `IsMouseButtonPressed` is a stub (events instead), and
+  raw mouse deltas need `MouseBehavior = LockCenter`. The R15 fallback
+  head's transparent face texture is cleared on the client (the renderer
+  hides the head otherwise) — see `game/docs/PACK.md`.
+
 Not started (Phase 1 remaining):
 
-1. **Content pack v1 + `gamepack`.** The exact files the engine reads are
-   in `crates/rustudio-core/src/default_scripts.rs`:
-   - `ExtraContent/scripts/PlayerScripts/StarterPlayerScripts/PlayerScriptsLoader.lua`
-   - `ExtraContent/scripts/PlayerScripts/StarterPlayerScripts/PlayerModule.module.lua`
-     plus `PlayerModule.module/<Module>.lua` (`module_children`: a `.lua`
-     becomes a ModuleScript, a subfolder a Folder with the same rules)
-   - `ExtraContent/scripts/PlayerScripts/StarterPlayerScriptsCommon/RbxCharacterSounds.lua`
-     and `RbxCharacterSounds/AtomicBinding.lua`
-   - `content/avatar/scripts/humanoidAnimateR15_DEPRECATED_20260813.rbxm`
-     (R15), `humanoidAnimatePlayEmote.rbxm` (R6),
-     `humanoidHealthRegenScript.rbxmx`
-   - `content/avatar/character.rbxm` and the head models are optional
-     (blocky fallback otherwise).
-   The pack root is `RUSTUDIO_STUDIO_DIR` (validated by
-   `ExtraContent/scripts/PlayerScripts`); `RUSTUDIO_CONTENT_DIR` is its
-   `content/`. If the loader file is missing the engine installs its own
-   `PLAYER_SCRIPTS_LOADER`; with no module at all it has a keyboard
-   stand-in for movement but no module camera/controls. There are no
-   Roblox PlayerModule sources in the repo (they normally come from a
-   Studio install), so v1 needs our own module, or a licence-approved
-   source. `gamepack build/update/publish` is then a small CLI.
-2. **F4 capture ledger + "Save assets for offline use"** (§8.4), including
+1. **F4 capture ledger + "Save assets for offline use"** (§8.4), including
    the asset-manager local-copy idea in §18.19 (upstream 0.6's uploader
    copies imported/uploaded files into the project's `assets/<id>.<ext>` +
    manifest; the cook consumes that folder; publishing reuses
    `rustudio_account`'s upload call).
-3. **Launcher logging/error UI, CI, release script and docs** (§14/§15).
+2. **Launcher logging/error UI, CI, release script and docs** (§14/§15).
+3. **Pack v1.1:** our own Animate with in-place KeyframeSequences (no cloud
+   clip ids, so a cook is not needed for the default animations). v1 uses
+   Studio's Animate and the cook's one online capture.
 
 ## Git state
 
@@ -102,10 +99,12 @@ Not started (Phase 1 remaining):
 
 ```sh
 cargo test --workspace                       # upstream suite (incl. F2/F7)
-cargo test --manifest-path game/Cargo.toml   # launcher + cook
+cargo test --manifest-path game/Cargo.toml   # launcher + cook + gamepack
 scripts/phase0-bundle.sh                     # player + bundle
 scripts/phase0-smoke.sh                      # 3 headless checks (offline)
+scripts/pack-smoke.sh                        # pack: R15; add --r6
 game/build/phase0-game/phase0-game           # visual check — ask the user
+game/build/pack-smoke/pack-smoke             # pack visual check — ask
 ```
 
 ## Rules and user preferences (important)
