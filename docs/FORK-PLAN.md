@@ -343,6 +343,18 @@ Work items:
 5. **Keep it small.** This pack is part of the game runtime and should be
    versioned. It can be bundled or downloaded once.
 
+**Decision (2026-11-26): v1 ships; item 2's own clips wait for
+distribution.** The asset cache already gives download-once-then-offline:
+warm the bundle once (the cook, or F4's export after a play session), and
+every later run reads only local files — `scripts/pack-smoke.sh` proves the
+flow and the user's playtest confirmed it. Our own Animate with in-place
+KeyframeSequences (v1.1) buys three things that matter when handing the game
+to someone else: no signed-in session at cook time, no redistribution of
+Roblox's animation bytes, and no dependence on Roblox keeping those ids. It
+costs authoring the Animate state machine's clips. The reduced intermediate
+(idle/walk/run/jump only, Studio's Animate as fallback) is in
+`game/docs/PACK.md`.
+
 Another development fallback: inject controller/animate scripts into the
 place at cook time. That avoids the pack entirely, but the editor's own Play
 mode then still needs a Studio install. Prefer a real pack for release; the

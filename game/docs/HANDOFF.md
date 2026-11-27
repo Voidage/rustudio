@@ -104,6 +104,12 @@ Not started (Phase 1 remaining):
 1. **Pack v1.1:** our own Animate with in-place KeyframeSequences (no cloud
    clip ids, so a cook is not needed for the default animations). v1 uses
    Studio's Animate and the cook's one online capture.
+   **Deferred until distribution (2026-11-26):** v1 already delivers
+   download-once-then-offline (warm the bundle, then every run is local);
+   v1.1 removes the one-time session, the redistribution of Roblox's
+   animation bytes, and the dependence on Roblox's ids — all of which
+   matter when shipping to someone else, not for local use. Reasoning and
+   the reduced-clip intermediate option are in `game/docs/PACK.md`.
 
 ## Git state
 

@@ -50,6 +50,25 @@ That is the "download once" step; afterwards the game is offline. The
 plan's longer-term v1.1 replaces it with our own Animate that embeds
 in-place KeyframeSequences (F7), so no cloud ids remain.
 
+**v1.1 is deferred until distribution (decided 2026-11-26).** The cache
+already gives the download-once behaviour: warm the bundle once (the cook,
+or `rustudio-cook export` after a play session), and every later run is
+offline — `scripts/pack-smoke.sh` proves the flow. v1.1 buys three things
+that only matter when handing the game to someone else:
+
+1. **No Roblox session at cook time.** The warm needs a signed-in account
+   when Roblox refuses an anonymous fetch; embedded clips never do.
+2. **No redistribution of Roblox's animation bytes.** Shipping the warmed
+   cache publishes Roblox content, the same licensing question as the
+   avatar bodies above; our own KeyframeSequences are ours.
+3. **Roblox cannot change or remove the ids.** A cooked bundle is safe, but
+   a cook on a fresh machine is not.
+
+The cost is authoring the Animate state machine's clips (idle, walk, run,
+jump, fall, climb, swim, tool states) as in-place KeyframeSequences. The
+intermediate option, if a smaller step is wanted first, is embedding only
+idle/walk/run/jump and keeping Studio's Animate as the fallback.
+
 ### R15 head
 
 The public R15 fallback head carries a face texture that is transparent
