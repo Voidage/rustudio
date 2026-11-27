@@ -120,6 +120,23 @@ fn content_string(class: &str, prop: &str, value: &Variant) -> Option<String> {
         _ => return None,
     };
     let s = s.trim().to_string();
+    if !s.is_empty() && s.len() > 8 {
+        // A Roblox asset URL stored as a plain string (old Animate models:
+        // http://www.roblox.com/asset/?id=N) names the same asset as the
+        // rbxassetid://N form; normalize so the report has one row, not a
+        // "web URL" problem beside a cached asset.
+        let lower = s.to_ascii_lowercase();
+        if (lower.starts_with("http://") || lower.starts_with("https://"))
+            && lower.contains("roblox.com")
+        {
+            if let Some(id) = ids_in_line(&s)
+                .into_iter()
+                .find(|id| id.starts_with("rbxassetid://"))
+            {
+                return Some(id);
+            }
+        }
+    }
     (!s.is_empty()).then_some(s)
 }
 
@@ -335,6 +352,20 @@ mod tests {
         assert_eq!(
             ids_in_line("'rbxassetid://1' .. tostring(2)"),
             vec!["rbxassetid://1"]
+        );
+    }
+
+    #[test]
+    fn a_roblox_asset_url_property_normalizes_to_the_asset_id() {
+        let url = Variant::String("http://www.roblox.com/asset/?id=180435571".into());
+        assert_eq!(
+            content_string("Animation", "AnimationId", &url),
+            Some("rbxassetid://180435571".into())
+        );
+        let web = Variant::String("https://example.com/asset/?id=5".into());
+        assert_eq!(
+            content_string("Decal", "Texture", &web),
+            Some("https://example.com/asset/?id=5".into())
         );
     }
 
