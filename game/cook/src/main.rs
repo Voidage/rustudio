@@ -461,7 +461,16 @@ fn cook(options: &Options) -> Result<i32, String> {
 
     println!("cook: opening {}", place.display());
     let doc = Document::open(&place).map_err(|e| format!("{}: {e}", place.display()))?;
-    let scan = scan::scan(&doc);
+    let mut scan = scan::scan(&doc);
+    if let Some(pack) = &options.content {
+        if pack.join("content").is_dir() || pack.join("ExtraContent").is_dir() {
+            match scan_pack(pack, &mut scan) {
+                Ok(n) if n > 0 => println!("cook: content pack adds {n} content id(s)"),
+                Ok(_) => {}
+                Err(e) => eprintln!("cook: content pack scan skipped: {e}"),
+            }
+        }
+    }
     println!("cook: static scan found {} content id(s)", scan.refs.len());
 
     let place_rel = copy_place(&place, &options.out)?;
@@ -842,6 +851,81 @@ struct CaptureInfo {
     player: PathBuf,
     log: PathBuf,
     exit: i32,
+}
+
+/// Ids named by the pack's own avatar and PlayerScripts files. The default
+/// Animate models name every clip (R6 walk/run/jump/idle...); a short
+/// playthrough only requests the few it reaches, so without this a package
+/// ships with a partial animation set.
+fn scan_pack(pack: &Path, out: &mut scan::Scan) -> Result<usize, String> {
+    let mut files = Vec::new();
+    for rel in ["content/avatar/scripts", "ExtraContent/scripts"] {
+        let dir = pack.join(rel);
+        if dir.is_dir() {
+            collect_files(&dir, &mut files)?;
+        }
+    }
+    files.sort();
+    let before = out.refs.len();
+    for file in files {
+        let rel = file
+            .strip_prefix(pack)
+            .unwrap_or(&file)
+            .to_string_lossy()
+            .replace('\\', "/");
+        match file.extension().and_then(|e| e.to_str()) {
+            Some("rbxm" | "rbxmx") => match Document::open(&file) {
+                Ok(doc) => {
+                    for (id, refs) in scan::scan(&doc).refs {
+                        for referrer in refs {
+                            let referrer = match referrer {
+                                scan::Referrer::Property(p) => {
+                                    scan::Referrer::Property(format!("{rel}: {p}"))
+                                }
+                                scan::Referrer::Script { path, line } => scan::Referrer::Script {
+                                    path: format!("{rel}: {path}"),
+                                    line,
+                                },
+                            };
+                            out.add(id.clone(), referrer);
+                        }
+                    }
+                }
+                Err(e) => eprintln!("cook: pack scan skipped {rel}: {e}"),
+            },
+            Some("lua") => match fs::read_to_string(&file) {
+                Ok(text) => {
+                    for (n, line) in text.lines().enumerate() {
+                        for id in scan::ids_in_line(line) {
+                            out.add(
+                                id,
+                                scan::Referrer::Script {
+                                    path: rel.clone(),
+                                    line: n as u32 + 1,
+                                },
+                            );
+                        }
+                    }
+                }
+                Err(e) => eprintln!("cook: pack scan skipped {rel}: {e}"),
+            },
+            _ => {}
+        }
+    }
+    Ok(out.refs.len().saturating_sub(before))
+}
+
+fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    let entries = fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_files(&path, out)?;
+        } else {
+            out.push(path);
+        }
+    }
+    Ok(())
 }
 
 fn run_capture(player: &Path, place: &Path, options: &Options) -> Result<CaptureInfo, String> {

@@ -43,6 +43,8 @@ carries the files the engine reads at Play time:
 PlatformContent/pc/textures/   legacy surfaces (studs), sky, water, brdfLUT
 PlatformContent/pc/terrain/    terrain materials and textures
 PlatformContent/pc/fonts/      Noto CJK fallbacks
+content/avatar/heads/          the R6 head mesh (head.mesh) and head shapes
+content/avatar/meshes/         classic R6 limb meshes
 content/textures/ content/sky/ content/fonts/ content/sounds/
 ExtraContent/scripts/PlayerScripts/StarterPlayerScriptsCommon/  RbxCharacterSounds
 ```

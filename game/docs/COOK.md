@@ -25,7 +25,10 @@ launcher's `RUSTUDIO_ENGINE_CONTENT_DIR`); a bare Studio `content/` folder
 still works. The playthrough runs **without a saved session**, as a shipped
 game does, so the game's own local rig (R15 or R6), head and Animate
 clips are what land in `cache/assets`; `--signed-in` only affects the fetch
-step for scanned private assets.
+step for scanned private assets. The pack's own Animate models and PlayerScripts are
+scanned too: the models name every clip (R6 walk/run/jump/idle...), and a
+short playthrough only reaches a few, so the rest would otherwise miss the
+cache.
 
 `--player` defaults to `$RUSTUDIO_PLAYER`, else `target/{release,debug}/rustudio-player`
 in the current directory or one of its ancestors. Build the player first

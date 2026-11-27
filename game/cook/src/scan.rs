@@ -98,6 +98,13 @@ pub fn scan(doc: &Document) -> Scan {
     out
 }
 
+impl Scan {
+    /// Adds one reference; the pack scan merges into the place's table.
+    pub fn add(&mut self, id: String, referrer: Referrer) {
+        push(self, id, referrer);
+    }
+}
+
 fn push(out: &mut Scan, id: String, referrer: Referrer) {
     let refs = out.refs.entry(id).or_default();
     if !refs.contains(&referrer) {

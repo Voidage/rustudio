@@ -32,6 +32,8 @@ DIRS=(
     "PlatformContent/pc/textures"
     "PlatformContent/pc/terrain"
     "PlatformContent/pc/fonts"
+    "content/avatar/heads"
+    "content/avatar/meshes"
     "content/textures"
     "content/sky"
     "content/fonts"
