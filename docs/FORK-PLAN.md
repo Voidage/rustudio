@@ -726,6 +726,7 @@ teleports. Every patch is listed here and in `git log`.
 | F6 | `crates/rustudio-player/src/play_teleport.rs` | Local multi-place teleports | larger | No | 3 |
 | F7 | `crates/rustudio-engine/src/library.luau` (plus `anim_tracks.rs` / `anim_replicate.rs` only if needed) | Direct KeyframeSequence / AnimationClip loading, no upload or asset id; stable clip ids for replication | 20–80 lines | Maybe (upstream targets API parity; likely fork-only) | 1 (load), 2 (replication) |
 | U2 | `vendor/egui_dock`, `src/layout_store.rs` | A dock leaf whose active tab index is past the end draws no tab body (a blank 3D viewport); clamp on tab removal and on layout load | ~25 lines | Yes | done (upstream bug; PR not sent) |
+| U3 | `src/viewport.rs`, `src/properties.rs`, `src/props_layout.rs`, `src/app.rs`, `src/cloud_ui.rs`, `crates/rustudio-render/src/adorn.rs` | Attachment selection: Studio's sphere/Axis/SecondaryAxis gizmo, Move/Rotate drag, Visible spheres, and CFrame/WorldCFrame/Axis property frames | ~640 lines | Yes | done (upstream feature; PR not sent) |
 
 The content pack manager (`gamepack`) and first-launch resolution are
 downstream code. F3 only gives the engine a clean content root.
