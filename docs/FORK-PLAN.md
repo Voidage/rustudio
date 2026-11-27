@@ -645,13 +645,12 @@ Plan:
    requesting place/session. One record per id+version. (As built: the
    ledger keeps id, version, status, size, cache path, time and place; the
    export computes the sha256 as it copies, so a play run does no hashing.)
-2. **Durable retention.** Add a setting “Keep downloaded assets for offline
-   use” (default on). While on, assets are never auto-deleted. Offer an
-   optional mirror to a user-chosen asset library folder so the bytes survive
-   a cache clean. The per-game bundle's `cache/` is the canonical copy for a
-   shipped game. (As built: no toggle yet — the cache never evicts, so
-   retention is already the behaviour; the toggle and mirror belong with the
-   Phase 2 Asset Manager UI.)
+2. **Durable retention — out of scope.** The download cache is never
+   pruned: no size budget, no eviction, no cache-clearing UI. It is a
+   re-downloadable copy, not authored data, and deleting it by hand only
+   costs a fetch. The per-game bundle's `cache/` is the canonical copy for a
+   shipped game. “Export for Offline Use” writes beside the place, outside
+   the download cache, so exports survive whatever happens to it.
 3. **Per-place export.** Add “Save assets for offline use” for the open place:
    copy every ledger entry for that place into `<bundle>/cache/assets`, write
    a manifest plus hashes, and report ids that failed or were never
@@ -677,9 +676,9 @@ Plan:
    also has **Import Locally into This Place**: images, sounds and meshes
    are copied into `<place folder>/assets/`, `.rustudio-local-content` is
    created so the engine resolves the relative paths, and `.rbxm/.rbxmx`
-   are inserted into the DataModel as before. Nothing is uploaded. Still
-   open: the cache size/retention toggle and the durable library mirror
-   (item 2).
+   are inserted into the DataModel as before. Nothing is uploaded. There
+   is no cache size/retention UI: the download cache is never pruned
+   (item 2), and the export lands beside the place.
 8. **Failure and version handling.** Keep versioned entries
    (`<id>_v<version>.bin`); a later version never overwrites an older one
    when a place asks for it. Record failed requests so the export can fail
@@ -843,8 +842,8 @@ movement/camera and default animation.
 - If/when upstream animation authoring tools land, their preview reuses the
   same direct playback path; no separate integration is required.
 - Direct-clip replication, with F8 only if path-based ids are not enough.
-- Asset Manager per-place view and local imports (done); cache
-  size/retention UI and the optional durable asset library mirror remain.
+- Asset Manager per-place view and local imports (done). Cache management
+  is out of scope: the download cache is never pruned.
 - Download mode for the content pack: fetch, hash check, per-user install,
   reuse, and update.
 - Studio UI actions for Build/Update Content Pack (wraps `gamepack`); this

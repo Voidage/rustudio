@@ -188,7 +188,8 @@ impl LocalAssets {
     }
 
     /// Run `rustudio-cook export` for this place into
-    /// `<cache>/offline-export/<place-stem>/`. Returns its output on success.
+    /// `<place folder>/offline-export/<place-stem>/`, beside the project and
+    /// outside the download cache. Returns its output on success.
     pub fn export(&self, place: &Path) -> Result<String, String> {
         let cook = cook_binary().ok_or_else(|| {
             "rustudio-cook was not found. Build it with \
@@ -196,7 +197,11 @@ impl LocalAssets {
                 .to_string()
         })?;
         let stem = place.file_stem().and_then(|s| s.to_str()).unwrap_or("place");
-        let out = rustudio_core::assets::cache_dir().join("offline-export").join(stem);
+        let folder = place
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let out = folder.join("offline-export").join(stem);
         let output = std::process::Command::new(&cook)
             .arg("export")
             .arg("--place")

@@ -961,8 +961,8 @@ impl AssetManager {
             if ui
                 .add_enabled(can_export, egui::Button::new("Export for Offline Use"))
                 .on_hover_text(
-                    "Copies this place's cached assets into <cache>/offline-export/<place>/ with hashes \
-                     (the same rustudio-cook export a release bundle uses).",
+                    "Copies this place's cached assets beside the place, into offline-export/<place>/ with \
+                     hashes (the same rustudio-cook export a release bundle uses).",
                 )
                 .clicked()
             {

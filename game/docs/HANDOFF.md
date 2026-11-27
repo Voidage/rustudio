@@ -58,14 +58,13 @@ Phase 2 so far:
 
 Phase 2 remaining (suggested order):
 
-1. Asset Manager cache size/retention UI and the optional durable
-   asset-library mirror (the per-place view and local imports are done).
-2. Content pack download mode: fetch, hash check, per-user install, reuse,
+1. Content pack download mode: fetch, hash check, per-user install, reuse,
    update (§7.1).
-3. Studio UI actions for Build/Update Content Pack (wraps `gamepack`).
-4. Game-scoped config/crash/log paths (stop user settings leaking in).
-5. Offline service messages and the manifest's allow-network opt-in (§9).
-6. Packaging, signing/notarization as distribution requires.
+2. Studio UI actions for Build/Update Content Pack (wraps `gamepack`).
+3. Offline service messages and the manifest's allow-network opt-in (§9).
+4. Packaging, signing/notarization as distribution requires.
+
+Cache management is out of scope: the download cache is never pruned.
 
 Phase 1 (complete):
 
@@ -132,12 +131,13 @@ Phase 1 (complete):
   entries into `<out>/cache/assets` and writes `offline-assets.json` with
   sizes and sha256, reporting `missing` and `failed` ids. Unit-tested in
   both crates; docs in `game/docs/COOK.md`.
-  There is no "keep downloaded assets" toggle: the cache has no eviction,
-  so retention is already the behaviour; the toggle belongs with the Phase 2
-  Asset Manager UI (§8.4 item 2). The asset-manager local-copy idea (§18.19)
-  is **done** in the small downstream patch described under "Current state":
-  This Place lists the ledger and the place's `assets/` files, and Bulk
-  Import can copy files there without an upload.
+  There is no "keep downloaded assets" toggle or cache UI, and none is
+  planned: the download cache is never pruned (§8.4 item 2). The
+  asset-manager local-copy idea (§18.19) is **done** in the small downstream
+  patch described under "Current state": This Place lists the ledger and the
+  place's `assets/` files, and Bulk Import can copy files there without an
+  upload. "Export for Offline Use" writes beside the place, outside the
+  download cache.
 
 - **Launcher, CI and release (Phase 1 item 3).**
   The launcher's log now starts with the game's name, version and id; a
