@@ -194,13 +194,25 @@ fn capture_record(id: &str, status: u8) {
         "path": path,
         "size": size,
     });
-    use std::io::Write;
-    let file = capture_ledger_path();
+    append_ledger_line(&capture_ledger_path(), &line.to_string());
+}
+
+/// Append one record. The whole line is built first and written once under a
+/// process-wide lock: `writeln!` formats through several `write` calls, and
+/// concurrent captures interleaved halves of two JSON objects on one line,
+/// which every reader then skips.
+fn append_ledger_line(file: &Path, line: &str) {
+    static LOCK: Mutex<()> = Mutex::new(());
+    let Ok(_guard) = LOCK.lock() else { return };
     if let Some(dir) = file.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&file) {
-        let _ = writeln!(f, "{line}");
+    let mut buf = String::with_capacity(line.len() + 1);
+    buf.push_str(line);
+    buf.push('\n');
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(file) {
+        let _ = f.write_all(buf.as_bytes());
     }
 }
 
@@ -3169,6 +3181,39 @@ mod tests {
             retry_after: retry_after.map(|value| value.parse().unwrap()),
             error: rustudio_account::Error::new(format!("HTTP {status}")),
         }
+    }
+
+    #[test]
+    fn concurrent_ledger_appends_keep_one_record_per_line() {
+        let path = std::env::temp_dir().join(format!("rustudio-ledger-{}.jsonl", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let threads: Vec<_> = (0..8)
+            .map(|t| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    for n in 0..25 {
+                        let line = serde_json::json!({
+                            "thread": t, "n": n, "pad": "x".repeat(512),
+                        })
+                        .to_string();
+                        append_ledger_line(&path, &line);
+                    }
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().unwrap();
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut seen = 0;
+        for line in text.lines() {
+            let record: serde_json::Value =
+                serde_json::from_str(line).expect("one JSON record per line");
+            assert_eq!(record["pad"].as_str().unwrap().len(), 512);
+            seen += 1;
+        }
+        assert_eq!(seen, 200);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
