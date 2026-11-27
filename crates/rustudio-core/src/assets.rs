@@ -137,11 +137,18 @@ fn capture_place() -> String {
     }
 }
 
-/// One settled cloud request into the capture ledger. Statuses 2 and 3 can
+/// One settled cloud request into the capture ledger, when a place is known
+/// (a test or a tool with no place writes nothing). Statuses 2 and 3 can
 /// alternate (a success, then a failed retry); a repeated status is not
 /// written again in the same process.
 fn capture_record(id: &str, status: u8) {
     let Some(a) = asset_ref(id) else { return };
+    // No place, no ledger: a test, a tool or the editor before any file is
+    // open must not write into the person's cache.
+    let place = capture_place();
+    if place.is_empty() {
+        return;
+    }
     let key = content_key(id);
     static LAST: Mutex<Option<HashMap<String, u8>>> = Mutex::new(None);
     match LAST.lock() {
@@ -169,7 +176,7 @@ fn capture_record(id: &str, status: u8) {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0),
-        "place": capture_place(),
+        "place": place,
         "id": a.id,
         "version": a.version,
         "status": status,
