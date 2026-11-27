@@ -546,6 +546,18 @@ impl<Tab> DockState<Tab> {
             })
     }
 
+    /// Clamps every leaf's active tab into its tab list. A layout saved (or
+    /// deserialized) after a tab went away can name an index past the end;
+    /// an out-of-range active tab draws nothing at all, which is how a
+    /// viewport leaf ends up blank.
+    pub fn sanitize(&mut self) {
+        for (_, node) in self.iter_all_nodes_mut() {
+            if let Node::Leaf(leaf) = node {
+                leaf.clamp_active();
+            }
+        }
+    }
+
     /// Returns an [`Iterator`] of **all** tabs in the dock state,
     /// and the indices of containing surfaces and nodes.
     pub fn iter_all_tabs(&self) -> impl Iterator<Item = (TabPath, &Tab)> {
@@ -758,5 +770,15 @@ mod test {
         t.remove_tab(i);
         t.retain_tabs(|_| false);
         t.push_to_focused_leaf(0);
+    }
+
+    /// A deserialized layout can name a tab that is gone; `sanitize` makes
+    /// it drawable again.
+    #[test]
+    fn sanitize_clamps_a_stale_active_tab() {
+        let mut t = DockState::new(vec![1]);
+        t.main_surface_mut().leaf_mut(NodeIndex::root()).unwrap().active = TabIndex(3);
+        t.sanitize();
+        assert_eq!(t.main_surface().leaf(NodeIndex::root()).unwrap().active, TabIndex(0));
     }
 }

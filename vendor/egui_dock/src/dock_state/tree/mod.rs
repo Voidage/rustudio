@@ -1003,6 +1003,18 @@ mod test {
         assert!(tree.find_tab(&Tab(0)).is_some());
     }
 
+    /// Removing the active tab must leave a valid active index: an
+    /// out-of-range one draws no tab body at all (a closed-into viewport
+    /// leaf showed a blank 3D view).
+    #[test]
+    fn retain_clamps_the_active_tab() {
+        let mut tree: Tree<Tab> = Tree::new(vec![Tab(0), Tab(1)]);
+        tree.set_active_tab(NodeIndex::root(), TabIndex(1)).unwrap();
+        tree.retain_tabs(|t| *t != Tab(1));
+        let (n, _) = tree.find_tab(&Tab(0)).unwrap();
+        assert_eq!(tree.leaf(n).unwrap().active, TabIndex(0));
+    }
+
     /// Tests whether `retain_tabs` works correctly with trailing `Empty` nodes
     #[test]
     fn retain_trailing_empty() {

@@ -213,7 +213,10 @@ impl Layout {
     /// The saved dock, if it still has the 3D view (else the default is used).
     pub fn dock(&self) -> Option<DockState<Tab>> {
         let d = self.dock.as_ref()?;
-        let dock = d.map_tabs(|t| t.tab());
+        let mut dock = d.map_tabs(|t| t.tab());
+        // A saved leaf can name a tab that no longer exists; an active
+        // index past the end draws an empty leaf (the viewport went blank).
+        dock.sanitize();
         dock.find_tab(&Tab::Viewport).is_some().then_some(dock)
     }
 
@@ -223,6 +226,8 @@ impl Layout {
         let mut out = Panels { popped: Vec::new(), homes: self.homes.clone() };
         for w in &self.popped {
             let mut dock = w.dock.map_tabs(|t| t.tab());
+            // (before retain: it drops a window whose tabs all went away)
+            dock.sanitize();
             dock.retain_tabs(|t| *t != Tab::Viewport && main.find_tab(t).is_none() && out.locate(main, t).is_none());
             if dock.iter_all_tabs().next().is_none() || w.key.is_empty() {
                 continue;
@@ -461,6 +466,23 @@ mod tests {
     use super::*;
     use crate::app::default_dock;
     use crate::panels::DockMove;
+
+    /// A saved layout can name an active tab past the end of its leaf (a
+    /// tab closed while another was focused). Such a leaf draws nothing —
+    /// the 3D viewport went blank — so loading repairs it.
+    #[test]
+    fn a_stale_active_tab_is_clamped_on_load() {
+        let mut dock = default_dock();
+        let at = dock.find_tab(&Tab::Viewport).unwrap();
+        dock.leaf_mut(at.node_path()).unwrap().active = egui_dock::TabIndex(99);
+        let layout = Layout { version: VERSION, dock: Some(saved_dock(&dock)), ..Default::default() };
+        let text = serde_json::to_string(&layout).unwrap();
+        let back: Layout = serde_json::from_str(&text).unwrap();
+        let restored = back.dock().expect("the viewport tab is still there");
+        let vp = restored.find_tab(&Tab::Viewport).unwrap();
+        let leaf = restored.leaf(vp.node_path()).unwrap();
+        assert!(leaf.active.0 < leaf.tabs.len(), "active {} of {} in {text}", leaf.active.0, leaf.tabs.len());
+    }
 
     /// Popped-out panels survive a save and a restart: tabs, key (app id),
     /// size and position; script tabs aren't kept.

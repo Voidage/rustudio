@@ -142,6 +142,16 @@ impl<Tab> LeafNode<Tab> {
         F: FnMut(&mut Tab) -> bool,
     {
         self.tabs.retain_mut(predicate);
+        self.clamp_active();
+    }
+
+    /// Keeps the active tab inside the tab list. Removing tabs can leave it
+    /// past the end, and an out-of-range index draws an empty leaf (a
+    /// viewport tab closing into that state shows no 3D view at all).
+    pub fn clamp_active(&mut self) {
+        if self.active.0 >= self.tabs.len() {
+            self.active = TabIndex(self.tabs.len().saturating_sub(1));
+        }
     }
 
     /// Return the area and tab which is currently representing this [`LeafNode`]
