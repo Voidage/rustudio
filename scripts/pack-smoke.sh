@@ -50,7 +50,7 @@ echo "== avatars from Studio (blocky fallback if none)"
 
 echo "== building the content pack"
 rm -rf "$BUNDLE"
-"$GAMEPACK" build "$ROOT/game/content" --out "$BUNDLE" --version 0.1.0
+"$GAMEPACK" build "$ROOT/game/content" --out "$BUNDLE/content" --version 0.1.0
 
 mkdir -p "$BUNDLE/engine" "$BUNDLE/place" "$BUNDLE/cache/assets" "$BUNDLE/assets" "$BUNDLE/logs"
 cp "$PLAYER" "$BUNDLE/engine/"
