@@ -218,14 +218,15 @@ fn append_ledger_line(file: &Path, line: &str) {
 
 /// `RUSTUDIO_OFFLINE=1` (FORK-PLAN §8.3): serve the disk cache and the
 /// local asset store only — no download is scheduled or attempted, and no
-/// session is waited for. Read on every call so a harness or a test can
-/// toggle it; the launcher sets it before the player starts.
+/// session is waited for. `RUSTUDIO_NO_NETWORK=1` (a shipped game without
+/// `"network": true`, §9) implies the same. Read on every call so a harness
+/// or a test can toggle it; the launcher sets it before the player starts.
 pub fn offline() -> bool {
-    std::env::var_os("RUSTUDIO_OFFLINE").is_some_and(|v| v == "1")
+    std::env::var_os("RUSTUDIO_OFFLINE").is_some_and(|v| v == "1") || crate::net::blocked()
 }
 
 fn offline_unavailable(id: u64) -> String {
-    format!("offline (RUSTUDIO_OFFLINE=1): asset {id} is not in the cache or the local asset store")
+    format!("offline (no network): asset {id} is not in the cache or the local asset store")
 }
 
 /// An optional local asset store: a folder of `<id>` or `<id>.<ext>` files,

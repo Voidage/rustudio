@@ -65,6 +65,15 @@ Phase 2 so far:
   local testing. Bundled mode is unchanged and stays the default;
   `scripts/pack-download-smoke.sh` proves install, reuse with the archive
   removed, and bad-hash fallback.
+- **Network policy — done, opt-out only.** Network is allowed by default:
+  a shipped game that calls the internet keeps working, and the launcher
+  sets `RUSTUDIO_HTTP_ENABLED=1` so HttpService is enabled (the editor has
+  no Experience Settings > "Allow HTTP requests" toggle yet — a parity
+  gap). `"network": false` in `game.json` sets `RUSTUDIO_NO_NETWORK=1`;
+  HttpService and `CreateWebStreamClient` then fail before opening a
+  connection and log one line per service/request, and asset downloads
+  behave as offline. `offline: true` stays about game assets and does not
+  cut the network.
 - **U3 (not Phase 2):** attachment selection, gizmos and property frames
   landed as a separate upstream-bound commit.
 
@@ -72,8 +81,7 @@ Phase 2 remaining (suggested order):
 
 1. Studio UI actions for Build/Update/Publish Content Pack (wraps
    `gamepack`, including the download-mode zip).
-2. Offline service messages and the manifest's allow-network opt-in (§9).
-3. Packaging, signing/notarization as distribution requires.
+2. Packaging, signing/notarization as distribution requires.
 
 Cache management is out of scope: the download cache is never pruned.
 

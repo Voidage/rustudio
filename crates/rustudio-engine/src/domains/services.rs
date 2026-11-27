@@ -1379,7 +1379,8 @@ pub fn on_leave(lua: &Lua) {
 // ------------------------------------------------------------------ HTTP
 
 fn http_enabled_check(lua: &Lua, hs: Ref) -> mlua::Result<()> {
-    let on = matches!(world(lua)?.d().prop(hs, "HttpEnabled"), Some(Variant::Bool(true)));
+    let on = matches!(world(lua)?.d().prop(hs, "HttpEnabled"), Some(Variant::Bool(true)))
+        || rustudio_core::net::http_enabled();
     // Plugins reach the web with HttpEnabled off (measured in Studio: a local
     // plugin's GetAsync / RequestAsync worked, no prompt).
     if on

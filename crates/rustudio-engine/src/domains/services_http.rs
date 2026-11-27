@@ -125,6 +125,9 @@ pub fn start_internal(req: Request) -> u64 {
 }
 
 fn run_internal(req: Request) -> Result<Response, String> {
+    if let Some(error) = blocked(&req, "HttpService (internal)") {
+        return Err(error);
+    }
     let dbg = std::env::var_os("RUSTUDIO_HTTP_DEBUG").is_some();
     let method = req.method.clone();
     let url = req.url.clone();
@@ -159,7 +162,20 @@ pub fn poll(id: u64) -> Option<Result<Response, String>> {
     done().lock().unwrap().remove(&id)
 }
 
+/// A shipped game without network access: fail before a socket is opened
+/// and log the attempt once (§9).
+fn blocked(req: &Request, service: &str) -> Option<String> {
+    if !rustudio_core::net::blocked() {
+        return None;
+    }
+    rustudio_core::net::blocked_message(service, &format!("{} {}", req.method, req.url));
+    Some(format!("HttpError: ConnectFail (network disabled: {})", req.url))
+}
+
 fn run(req: Request) -> Result<Response, String> {
+    if let Some(error) = blocked(&req, "HttpService") {
+        return Err(error);
+    }
     // Studio talks HTTP/2 over TLS where the server offers it, and HTTP/2
     // has no reason phrase (StatusMessage "", "HTTP 404"); plain http is
     // HTTP/1.1 ("Not Found"). This client is HTTP/1.1 only, so https

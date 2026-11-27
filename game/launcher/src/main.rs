@@ -67,6 +67,11 @@ struct Manifest {
     /// Offline promise: `RUSTUDIO_OFFLINE=1` for the player (F2).
     #[serde(default)]
     offline: Option<bool>,
+    /// Web access for the game's scripts (§9). Allowed unless this is
+    /// `false`; blocking makes HttpService/web streams fail fast with one
+    /// log line instead of waiting for a timeout.
+    #[serde(default)]
+    network: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -138,6 +143,9 @@ struct Bundle {
     content: Content,
     /// The manifest's offline promise: set `RUSTUDIO_OFFLINE=1`.
     offline: bool,
+    /// Allowed by default; `"network": false` sets `RUSTUDIO_NO_NETWORK=1`
+    /// (§9). `offline: true` restricts assets, not the network.
+    network: bool,
 }
 
 /// What the launcher writes to its own log before the player starts.
@@ -372,7 +380,13 @@ fn resolve(
     if offline {
         notes.push("offline: true (RUSTUDIO_OFFLINE=1)".into());
     }
-    Ok(Plan { bundle: Bundle { root: root.to_path_buf(), entry, engine, cache, assets, datastores, home, window_title, content, offline }, notes })
+    let network = manifest.network != Some(false);
+    notes.push(match manifest.network {
+        Some(false) => "network: blocked (game.json says network: false)".to_string(),
+        Some(true) => "network: allowed (game.json)".to_string(),
+        None => "network: allowed (default; set \"network\": false to block)".to_string(),
+    });
+    Ok(Plan { bundle: Bundle { root: root.to_path_buf(), entry, engine, cache, assets, datastores, home, window_title, content, offline, network }, notes })
 }
 
 fn resolve_content_mode(
@@ -476,12 +490,19 @@ fn env_contract(bundle: &Bundle) -> Vec<(&'static str, OsString)> {
         ("RUSTUDIO_HOME", bundle.home.clone().into_os_string()),
         // F1: the player's window title.
         ("RUSTUDIO_WINDOW_TITLE", bundle.window_title.clone().into()),
+        // §9: a game bundle runs with HttpService enabled; `network: false`
+        // then blocks the requests at the gate instead.
+        ("RUSTUDIO_HTTP_ENABLED", "1".into()),
         // The capture ledger records this game's asset requests against its
         // own place, so "Save assets for offline use" exports exactly them.
         ("RUSTUDIO_ASSET_PLACE", bundle.entry.clone().into_os_string()),
     ];
     if bundle.offline {
         vars.push(("RUSTUDIO_OFFLINE", "1".into()));
+    }
+    if !bundle.network {
+        // §9: shipped games fail web requests fast instead of timing out.
+        vars.push(("RUSTUDIO_NO_NETWORK", "1".into()));
     }
     if let Some(assets) = &bundle.assets {
         vars.push(("RUSTUDIO_LOCAL_ASSETS", assets.clone().into_os_string()));
@@ -753,6 +774,7 @@ mod tests {
             window_title: "My Game".into(),
             content: Content::Bundled { root: root.join("content") },
             offline: true,
+            network: false,
         };
         let vars: Vec<(&str, OsString)> = env_contract(&bundle);
         let get = |key: &str| vars.iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone());
@@ -761,10 +783,12 @@ mod tests {
         assert_eq!(get("RUSTUDIO_CORE_SCRIPTS"), Some(OsString::from("0")));
         assert_eq!(get("RUSTUDIO_LIVE_DATA"), Some(OsString::from("0")));
         assert_eq!(get("RUSTUDIO_OFFLINE"), Some(OsString::from("1")));
+        assert_eq!(get("RUSTUDIO_NO_NETWORK"), Some(OsString::from("1")));
         assert_eq!(get("RUSTUDIO_CACHE_DIR"), Some(root.join("cache").into_os_string()));
         assert_eq!(get("RUSTUDIO_DATASTORE_DIR"), Some(root.join("datastores").into_os_string()));
         assert_eq!(get("RUSTUDIO_HOME"), Some(root.join("home").into_os_string()));
         assert_eq!(get("RUSTUDIO_WINDOW_TITLE"), Some(OsString::from("My Game")));
+        assert_eq!(get("RUSTUDIO_HTTP_ENABLED"), Some(OsString::from("1")));
         assert_eq!(get("RUSTUDIO_ASSET_PLACE"), Some(root.join("place/game.rbxlx").into_os_string()));
         assert_eq!(get("RUSTUDIO_LOCAL_ASSETS"), Some(root.join("assets").into_os_string()));
         assert_eq!(get("RUSTUDIO_ENGINE_CONTENT_DIR"), Some(root.join("content").into_os_string()));
@@ -787,6 +811,7 @@ mod tests {
             window_title: "X".into(),
             content: Content::None,
             offline: false,
+            network: true,
         };
         let vars = env_contract(&bundle);
         let keys: Vec<&str> = vars.iter().map(|(k, _)| *k).collect();
@@ -795,6 +820,36 @@ mod tests {
         assert!(!keys.contains(&"RUSTUDIO_STUDIO_DIR"));
         assert!(!keys.contains(&"RUSTUDIO_LOCAL_ASSETS"));
         assert!(!keys.contains(&"RUSTUDIO_OFFLINE"));
+        assert!(!keys.contains(&"RUSTUDIO_NO_NETWORK"), "network: true opts back in");
+    }
+
+    #[test]
+    fn network_is_allowed_unless_the_manifest_opts_out() {
+        let m = manifest(r#"{"manifest_version":1,"id":"x","name":"X","entry":"game.rbxlx"}"#);
+        let plan = resolve(&m, Path::new("/games/mygame"), &engine_dir, &|_| unreachable!()).unwrap();
+        assert!(plan.bundle.network, "network is on by default");
+        assert!(plan.notes.iter().any(|n| n.contains("network: allowed (default")));
+
+        let m = manifest(
+            r#"{"manifest_version":1,"id":"x","name":"X","entry":"game.rbxlx","network":false}"#,
+        );
+        let plan = resolve(&m, Path::new("/games/mygame"), &engine_dir, &|_| unreachable!()).unwrap();
+        assert!(!plan.bundle.network);
+        assert!(plan.notes.iter().any(|n| n.contains("network: blocked (game.json")));
+
+        let m = manifest(
+            r#"{"manifest_version":1,"id":"x","name":"X","entry":"game.rbxlx","network":true}"#,
+        );
+        let plan = resolve(&m, Path::new("/games/mygame"), &engine_dir, &|_| unreachable!()).unwrap();
+        assert!(plan.bundle.network);
+        assert!(plan.notes.iter().any(|n| n.contains("network: allowed (game.json")));
+
+        // The offline promise is about assets; it does not cut the network.
+        let m = manifest(
+            r#"{"manifest_version":1,"id":"x","name":"X","entry":"game.rbxlx","offline":true}"#,
+        );
+        let plan = resolve(&m, Path::new("/games/mygame"), &engine_dir, &|_| unreachable!()).unwrap();
+        assert!(plan.bundle.network);
     }
 
     #[test]

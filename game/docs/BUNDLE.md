@@ -66,7 +66,8 @@ different working directory still works.
 | `content` | no | Engine content pack (§7.1): absent, a mode (`"bundled"`, `"download"`, `"engine"`), an object, or a plain string naming a bundled pack path. |
 | `window` | no | `width`/`height` become `--window WxH` unless `args` already sets one. `title` is used from F1. |
 | `args` | no | Extra player arguments, passed verbatim (the harness escape hatch). |
-| `offline` | no | `true` sets `RUSTUDIO_OFFLINE=1` for the player (F2): the cache and the local store only, no downloads. |
+| `offline` | no | `true` sets `RUSTUDIO_OFFLINE=1` for the player (F2): the cache and the local store only, no asset downloads. This is about game assets and does not block the network. |
+| `network` | no | Web access for the game's scripts (§9). Allowed by default, with HttpService enabled (the effect of Studio's "Allow HTTP requests"). `false` sets `RUSTUDIO_NO_NETWORK=1`: HttpService and web streams fail before opening a connection, with one log line per service and request; asset downloads are treated as offline. |
 
 The launcher forwards its own command-line arguments to the player after the
 manifest's. That is the debugging escape hatch:

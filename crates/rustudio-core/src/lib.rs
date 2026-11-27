@@ -27,6 +27,7 @@ pub mod sim_clock;
 pub mod heap;
 pub mod load_trace;
 pub mod log;
+pub mod net;
 pub mod studio_content;
 pub mod paths;
 pub mod platform;

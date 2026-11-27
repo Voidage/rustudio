@@ -229,6 +229,14 @@ pub fn start(req: Request, repaint: Option<egui::Context>) -> u64 {
     let (tx, rx) = mpsc::channel();
     let cancel = Arc::new(Cancel::default());
     table().lock().unwrap().insert(id, Entry { events: VecDeque::new(), repaint, tx, cancel: cancel.clone(), done: false, closing: false });
+    if rustudio_core::net::blocked() {
+        rustudio_core::net::blocked_message(
+            "CreateWebStreamClient",
+            &format!("{} {}", req.method, req.url),
+        );
+        push(id, Event::Error(0, format!("HttpError: ConnectFail (network disabled: {})", req.url)));
+        return id;
+    }
     workers().lock().unwrap().insert(id, req.url.clone());
     let spawned = std::thread::Builder::new().name("rustudio-webstream".into()).spawn(move || {
         let _guard = WorkerGuard(id);

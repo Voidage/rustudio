@@ -251,6 +251,8 @@ development.
 | `RUSTUDIO_STUDIO_DIR` | a Studio root | Development only; still supported after F3. |
 | `RUSTUDIO_CONTENT_DIR` | a `rbxasset://` root | Development only; still supported after F3. |
 | `RUSTUDIO_OFFLINE` | `1` | After F2: no background downloads, local store first. |
+| `RUSTUDIO_NO_NETWORK` | `1` only when `network: false` | §9: HttpService and web streams fail fast with one log line. The default allows the web. |
+| `RUSTUDIO_HTTP_ENABLED` | `1` | §9: a game bundle runs with HttpService enabled (no Experience Settings UI yet); `network: false` blocks the requests at the gate. |
 | `RUSTUDIO_WINDOW_TITLE` | `window.title`, else the game name | F1: the player's window title. |
 | `RUSTUDIO_ALLOW_LOCAL_CONTENT` | unset | Prefer the `.rustudio-local-content` marker when a game needs relative files. |
 | `RUSTUDIO_ASSET_REPORT` | test only | Writes the image/mesh audit JSON. |
@@ -708,16 +710,23 @@ line, not a timeout.
 | Account/session | restored unless `RUSTUDIO_NO_SESSION` | launcher disables |
 | Avatars/thumbnails | web calls | not used by a shipped game; avoid in UI |
 | DataStores | local in-memory by default | keep; phase 2 adds disk persistence |
-| HttpService | real HTTP | requests fail with `DnsResolve`; log once |
-| Marketplace/Badges | web calls | fail fast; don't use in MVP games |
+| HttpService | real HTTP | real HTTP by default; with `"network": false` requests fail before a socket opens, one log line per service/request |
+| Marketplace/Badges | session-backed web calls | fail fast: a shipped game has no session (`RUSTUDIO_NO_SESSION`) |
 | TeleportService | multi-place join flow | local place-to-place later (F6) |
 | Team Create | not in the player crate | n/a |
 
 Also:
 
-- Log every blocked network attempt once, with the service and URL.
-- Provide an opt-in “allow network” manifest flag for games that need it;
-  default off.
+- Log every blocked network attempt once, with the service and URL. As
+  built: `HttpService` and `CreateWebStreamClient` do this when network is
+  disabled, and the asset downloader treats it as offline.
+- **Network is allowed by default.** A game that wants to call the internet
+  keeps working; a bundle also sets `RUSTUDIO_HTTP_ENABLED=1` so
+  `HttpService` is enabled (the editor still needs an Experience Settings
+  toggle). `"network": false` in the manifest is the opt-out for a sealed
+  build; it sets `RUSTUDIO_NO_NETWORK=1`. `offline: true` is a separate
+  promise about game assets (cache/local store only) and does not cut the
+  network.
 - Keep `RUSTUDIO_ALLOW_LOCAL_CONTENT` off; use the bundle marker instead.
 
 ---
@@ -859,7 +868,8 @@ movement/camera and default animation.
   pack keeps Studio's R15/R6 bodies, Animate and font fallbacks unchanged;
   no custom rig is planned.
 - Game-scoped config/crash/log paths (F9, done).
-- Offline service messages, “allow network” opt-in.
+- Offline service messages: network is allowed by default; `"network": false`
+  is the explicit opt-out with one clear log line per blocked request (done).
 - Cross-platform packaging, signing/notarization as distribution requires.
 
 Exit criteria: a game that a non-developer can unzip and play; DataStore
