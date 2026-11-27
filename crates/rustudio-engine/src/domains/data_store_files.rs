@@ -199,7 +199,7 @@ mod tests {
         remove_tree(&root);
     }
 
-    fn walkdir(root: &Path) -> Vec<PathBuf> {
+    fn walkdir(root: &std::path::Path) -> Vec<PathBuf> {
         let mut out = Vec::new();
         if let Ok(entries) = fs::read_dir(root) {
             for entry in entries.flatten() {
