@@ -117,11 +117,19 @@ mkdir -p "$STAGE/engine"
 cp "$LAUNCHER" "$STAGE/$NAME$EXE"
 cp "$PLAYER" "$STAGE/engine/"
 cp "$BUNDLE/game.json" "$STAGE/game.json"
-for part in place cache assets; do
+for part in place assets; do
     if [[ -d "$BUNDLE/$part" ]]; then
         cp -R "$BUNDLE/$part" "$STAGE/"
     fi
 done
+# Only the asset bytes are shipped from the cache. A cooked bundle that was
+# played in place also holds cache/pipelines/ (GPU-specific, rebuilt) and
+# cache/capture-ledger.jsonl (the developer's place paths and history);
+# neither belongs in a release.
+if [[ -d "$BUNDLE/cache/assets" ]]; then
+    mkdir -p "$STAGE/cache"
+    cp -R "$BUNDLE/cache/assets" "$STAGE/cache/"
+fi
 for report in assets.json offline-assets.json; do
     if [[ -f "$BUNDLE/$report" ]]; then
         cp "$BUNDLE/$report" "$STAGE/"
@@ -175,8 +183,10 @@ echo "== release.json"
 
 echo "== archive"
 tar -czf "$ARCHIVE" -C "$OUT" "$(basename "$STAGE")"
-sha256 "$ARCHIVE" > "$ARCHIVE.sha256"
+HASH="$(sha256 "$ARCHIVE")"
+# `sha256sum -c` format: the digest, two spaces, the archive's name.
+printf '%s  %s\n' "$HASH" "$(basename "$ARCHIVE")" > "$ARCHIVE.sha256"
 echo "$RELEASE"
 echo "   folder  $STAGE"
 echo "   archive $ARCHIVE"
-echo "   sha256  $(cat "$ARCHIVE.sha256")"
+echo "   sha256  $HASH"

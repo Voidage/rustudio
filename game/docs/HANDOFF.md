@@ -1,4 +1,4 @@
-# Handoff — start here (Phase 2 in progress)
+# Handoff — start here (Phase 2 complete)
 
 Read this first, then `docs/FORK-PLAN.md` §2 (maintenance rules), §12
 (Phase 1) and `game/docs/PHASE0.md`. The plan is the source of truth; this
@@ -74,16 +74,28 @@ Phase 2 so far:
   connection and log one line per service/request, and asset downloads
   behave as offline. `offline: true` stays about game assets and does not
   cut the network.
+- **Release packaging — Linux done.** `scripts/release-bundle.sh` stages
+  launcher + engine + game.json + place/assets + `cache/assets` + a built
+  content pack, writes `release.json` (version, upstream base, engine
+  version, per-file sha256) and an immutable `.tar.gz` with a
+  `sha256sum -c` checksum. It never ships `cache/pipelines/`,
+  `cache/capture-ledger.jsonl`, saves or a home folder. `scripts/release-smoke.sh`
+  builds the fixture release, verifies the archive and every file hash,
+  unpacks it, runs from another cwd with a clean HOME and network disabled,
+  and checks the bundled pack plus the movement/camera probe.
 - **U3 (not Phase 2):** attachment selection, gizmos and property frames
   landed as a separate upstream-bound commit.
 
-Phase 2 remaining (suggested order):
+Phase 2 is complete (2026-11-27). Remaining only when distribution needs
+them:
 
-1. Packaging, signing/notarization as distribution requires.
+- Windows/macOS release runs; GPG signing and notarization.
+- An Experience Settings toggle for "Allow HTTP requests" in the editor
+  (bundles enable HttpService; the editor still has no UI).
 
 Skipped by decision (2026-11-27): Studio UI actions for the content pack.
-The `gamepack` CLI is enough; the editor should not put pack management in
-a game developer's way.
+The `gamepack` CLI is enough, and the editor should not put pack management
+in a game developer's way.
 
 Cache management is out of scope: the download cache is never pruned.
 

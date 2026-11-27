@@ -41,7 +41,10 @@ stages `dist/<game>-<version>-<os>-<arch>/` with:
 <game>                  launcher (the manifest's id, or --name)
 engine/rustudio-player  the unmodified player
 game.json               runtime manifest
-place/ cache/ assets/   from the cooked bundle (assets/ if present)
+place/ assets/           from the cooked bundle (assets/ if present)
+cache/assets/            the asset bytes only: cache/pipelines/ (GPU-specific)
+                         and cache/capture-ledger.jsonl (developer paths) are
+                         never shipped
 assets.json             cook report, when present
 offline-assets.json     F4 export report, when present
 content/                gamepack-built content pack
@@ -60,10 +63,18 @@ needs cargo, Rust, Studio or a Roblox account. See
 ```sh
 sha256sum -c dist/<game>-<version>-<os>-<arch>.tar.gz.sha256
 tar -tzf dist/<game>-<version>-<os>-<arch>.tar.gz | head
-# Unpack, then run the launcher with networking off (F2/FORK-PLAN §14.3):
-unshare -n ./<game>
-scripts/offline-smoke.sh          # the Phase 0 fixture's equivalent check
+scripts/release-smoke.sh          # Linux: build, verify, unpack, run sealed
 ```
+
+`release-smoke.sh` covers the whole Linux path: archive checksum,
+`release.json` hashes, no developer cache/saves/home, a clean HOME, the
+bundled pack, PlayerModule/camera/movement and the game's files staying in
+the bundle. `unshare -n` is not permitted on every machine; the smoke uses
+the game's own `RUSTUDIO_NO_NETWORK=1` (the `"network": false` path).
+
+Linux releases are checksummed. GPG signing and Windows/macOS notarization
+are added when a distribution channel requires them; the archive format is
+already immutable and versioned.
 
 The pack itself is verified by `rustudio-gamepack verify <pack>` (see
 [game/docs/PACK.md](PACK.md)); `release.json` hashes every file in the
@@ -80,5 +91,6 @@ bundle, the pack's `content-pack.json` included.
 
 The upstream `ci.yml` keeps testing the editor. A local pass is still the
 release gate: `cargo test --workspace`, `cargo test --manifest-path
-game/Cargo.toml`, `scripts/phase0-smoke.sh`, `scripts/pack-smoke.sh`, and a
-visual check of the game window with the user.
+game/Cargo.toml`, `scripts/phase0-smoke.sh`, `scripts/pack-smoke.sh`,
+`scripts/pack-download-smoke.sh`, `scripts/release-smoke.sh`, and a visual
+check of the game window with the user.

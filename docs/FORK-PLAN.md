@@ -871,11 +871,15 @@ movement/camera and default animation.
 - Game-scoped config/crash/log paths (F9, done).
 - Offline service messages: network is allowed by default; `"network": false`
   is the explicit opt-out with one clear log line per blocked request (done).
-- Cross-platform packaging, signing/notarization as distribution requires.
+- Packaging: Linux release bundle, checksum and smoke pass (done
+  2026-11-27). Windows/macOS packaging is built by the same script but
+  tested only when there is a machine for it; signing (GPG) and
+  notarization wait for a distribution channel that requires them.
 
 Exit criteria: a game that a non-developer can unzip and play; DataStore
 values survive restarts; logs are findable; no upstream configuration leaks
-into gameplay.
+into gameplay. Met on Linux on 2026-11-27 (release smoke); Windows/macOS
+await a machine to test on.
 
 ### Phase 3 — Distribution (ongoing)
 
@@ -1019,8 +1023,13 @@ Run all of these after every sync and before every release.
 - Downstream version: `game-vX.Y.Z+upstream.A.B.C`.
 - `game.json` records the engine version and upstream base.
 - Bundle name: `<game>-<version>-<os>-<arch>.zip` (or `.tar.gz`).
-- Include: launcher, player, manifest, place, cache, and content.
-- Publish checksums.
+- Include: launcher, player, manifest, place, `cache/assets`, and content.
+  Never ship `cache/pipelines/` (GPU-specific) or `cache/capture-ledger.jsonl`
+  (the developer's place paths), saves or a home folder.
+- Publish checksums in `sha256sum -c` format.
+- `scripts/release-bundle.sh` builds the folder, `release.json` (per-file
+  sha256) and the archive; `scripts/release-smoke.sh` proves the Linux
+  release unpacks, verifies, uses the bundled pack and runs sealed.
 - Keep releases immutable; sync work happens on `game`, releases are tags.
 - Optional updater only after the offline path is stable; it must be signed
   and opt-in.
