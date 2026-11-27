@@ -7,16 +7,22 @@ changes cannot break it.
 
 ```
 game/
-  Cargo.toml          downstream workspace (members: launcher, cook)
+  Cargo.toml          downstream workspace (members: launcher, cook, pack)
   launcher/           spawn-mode launcher: reads game.json, sets the env
                       contract, runs engine/rustudio-player
   cook/               developer tool: scans a place's content ids, captures
                       what Play requests, writes the bundle cache +
                       assets.json (Phase 1)
+  pack/               gamepack: build/update/verify/publish the content pack
+  content/            the content pack source: PlayerModule, loader, and
+                      (from the Studio install) the R6/R15 bodies + Animate
   fixtures/phase0/    the Phase 0 fixture (place, assets, manifest) and its
                       generator
+  fixtures/pack/      the content-pack smoke probe
+  fixtures/f7/        the direct KeyframeSequence acceptance probe
   docs/BUNDLE.md      bundle format + manifest + environment contract
   docs/COOK.md        the cook tool: usage, report format, statuses
+  docs/PACK.md        the content pack: layout, PlayerModule, gamepack
   docs/PHASE0.md      the Phase 0 spike: what ran, what it found
   build/              assembled bundles (generated; git-ignored)
 ```
@@ -55,6 +61,18 @@ game/target/release/rustudio-cook --place my_place.rbxlx \
 
 See [docs/COOK.md](docs/COOK.md): what it scans, the playthrough capture,
 `assets.json`, and `--signed-in` / `--local-assets`.
+
+## Build the content pack and test it
+
+```sh
+scripts/fetch-studio-avatar.sh        # R6/R15 bodies + Animate from Studio
+game/target/release/rustudio-gamepack build game/content \
+    --out game/build/content-pack --version 0.1.0
+scripts/pack-smoke.sh                 # R15; --r6 for R6
+```
+
+See [docs/PACK.md](docs/PACK.md): the layout the engine reads, the
+PlayerModule's camera/controls, and gamepack's manifest.
 
 ## Downstream unit tests
 
