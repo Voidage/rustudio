@@ -52,8 +52,8 @@ Studio install into `game/content` (git-ignored, Roblox content). Without
 it the packaged game still runs, but parts draw with no studs, the sky and
 some fonts are missing, and the R15 head's cloud mesh/face texture is not
 in the cooked cache. The cook captures with no saved session, as a
-shipped game runs, so the local body, head and Animate clips land in
-`cache/assets`.
+shipped game runs, so the local rig's body, head and Animate clips (R15 or
+R6, whichever the place uses) land in `cache/assets`.
 
 ## The avatar and Animate files
 

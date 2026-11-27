@@ -861,8 +861,9 @@ fn run_capture(player: &Path, place: &Path, options: &Options) -> Result<Capture
         .env("RUSTUDIO_CAPTURE_LEDGER", options.out.join("logs").join("cook-capture-ledger.jsonl"))
         .env("RUSTUDIO_NO_STUDIO_FETCH", "1")
         // Capture as a shipped game runs: no saved avatar/session, so the
-        // pack's local R15 body, head and Animate clips are what gets cached.
-        // `--signed-in` still covers scanned private assets in the fetch step.
+        // game's own local rig (R15 or R6), head and Animate clips are what
+        // gets cached. `--signed-in` still covers scanned private assets in
+        // the fetch step.
         .env("RUSTUDIO_NO_SESSION", "1")
         .env("RUSTUDIO_CORE_SCRIPTS", "0")
         .env("RUSTUDIO_LIVE_DATA", "0")
