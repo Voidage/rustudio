@@ -3,7 +3,7 @@
 # option A). The launcher has no rustudio dependencies, so building this
 # workspace never pulls in the engine.
 [workspace]
-members = ["launcher", "cook"]
+members = ["launcher", "cook", "pack"]
 resolver = "2"
 
 [workspace.package]
