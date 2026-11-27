@@ -1624,4 +1624,101 @@ mod tests {
         "#).eval().unwrap();
         assert_eq!(res, "true|false|true|0|1|1");
     }
+
+    /// One client frame as Play runs it: PreAnimation (which queues the
+    /// Animator), then the step that flushes the queue.
+    fn client_frame(c: &Runtime) {
+        let rs = {
+            let w = c.world_mut().unwrap();
+            w.d().find_child(w.d().dom.root_ref(), "RunService").unwrap()
+        };
+        c.fire(rs, "PreAnimation", vec![mlua::Value::Number(1.0 / 60.0)]);
+        c.step(1.0 / 60.0);
+    }
+
+    /// F7's replication half: a server track loaded from a KeyframeSequence
+    /// in the place reaches the client with the path id, the client loads
+    /// its own copy through `clip_by_path`, and poses its own rig. This is
+    /// the acceptance case in FORK-PLAN §7.2 ("a server-loaded direct clip
+    /// reaches the client").
+    #[test]
+    fn direct_clip_track_replicates_by_path_id() {
+        let (s, c, mut map) = pair();
+        s.lua.load(r#"
+            local rs = game:GetService("ReplicatedStorage")
+            local folder = Instance.new("Folder", rs); folder.Name = "Animations"
+            local kfs = Instance.new("KeyframeSequence", folder); kfs.Name = "Wave"; kfs.Loop = true
+            for i = 0, 1 do
+                local k = Instance.new("Keyframe", kfs); k.Time = i
+                local p = Instance.new("Pose", k); p.Name = "Root"
+                local q = Instance.new("Pose", p); q.Name = "Limb"
+                q.CFrame = CFrame.new(0, i * 2, 0)
+            end
+            local model = Instance.new("Model", workspace); model.Name = "Rig"
+            local root = Instance.new("Part", model); root.Name = "Root"; root.Anchored = true
+            local limb = Instance.new("Part", model); limb.Name = "Limb"
+            local motor = Instance.new("Motor6D", root); motor.Name = "Shoulder"
+            motor.Part0 = root; motor.Part1 = limb
+            local controller = Instance.new("AnimationController", model)
+            local animator = Instance.new("Animator", controller)
+            local track = animator:LoadAnimation(kfs)
+            track:Play(0, 1, 0)
+            track.TimePosition = 0.5
+        "#).exec().unwrap();
+        // Server tracks go into the Animator's hidden slots, then the slots
+        // replicate like any property.
+        crate::anim_replicate::publish(&s.lua);
+        sync(&s, &c, &mut map, false);
+        let res: String = c.lua.load(r#"
+            local controller = workspace.Rig:FindFirstChildOfClass("AnimationController")
+            local animator = controller:FindFirstChildOfClass("Animator")
+            local tracks = animator:GetPlayingAnimationTracks()
+            local t = tracks[1]
+            return table.concat({
+                tostring(#tracks),
+                t and t.Animation.AnimationId or "nil",
+                t and tostring(t.Length) or "-1",
+                t and tostring(t.Looped) or "false",
+            }, "|")
+        "#).eval().unwrap();
+        assert_eq!(res, "1|rbxtemp://kfs/ReplicatedStorage.Animations.Wave|1|true");
+        // The client's copy of the clip drives the client's own Motor6D.
+        client_frame(&c);
+        let y: f32 = c.lua.load(r#"
+            return workspace.Rig.Root:FindFirstChild("Shoulder").Transform.Y
+        "#).eval().unwrap();
+        assert!((y - 1.0).abs() < 0.05, "client Motor6D.Transform.Y = {y}");
+    }
+
+    /// A parentless direct clip gets the registry counter, which means
+    /// nothing in the client's VM, so its replicated track stays empty.
+    /// This is deliberate (FORK-PLAN §7.2): only a clip in the replicated
+    /// tree can be named by both sides.
+    #[test]
+    fn parentless_direct_clip_does_not_replicate_by_accident() {
+        let (s, c, mut map) = pair();
+        s.lua.load(r#"
+            local model = Instance.new("Model", workspace); model.Name = "Rig"
+            local controller = Instance.new("AnimationController", model)
+            local animator = Instance.new("Animator", controller)
+            local loose = Instance.new("KeyframeSequence"); loose.Loop = false
+            local k = Instance.new("Keyframe", loose); k.Time = 0
+            local p = Instance.new("Pose", k); p.Name = "Root"
+            local track = animator:LoadAnimation(loose)
+            track:Play()
+        "#).exec().unwrap();
+        crate::anim_replicate::publish(&s.lua);
+        sync(&s, &c, &mut map, false);
+        let res: String = c.lua.load(r#"
+            local controller = workspace.Rig:FindFirstChildOfClass("AnimationController")
+            local animator = controller:FindFirstChildOfClass("Animator")
+            local tracks = animator:GetPlayingAnimationTracks()
+            local t = tracks[1]
+            return table.concat({
+                tostring(#tracks),
+                t and tostring(t.Length) or "-1",
+            }, "|")
+        "#).eval().unwrap();
+        assert_eq!(res, "1|0");
+    }
 }

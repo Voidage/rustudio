@@ -610,8 +610,9 @@ end
 -- clip/) names the client's own copy of a server-loaded clip. A name that
 -- contains "." is ambiguous; the same VM still finds its registry entry.
 local function clip_by_path(id)
-    local kind, path = string.match(id, "^rbxtemp://(kfs|clip)/(.+)$")
-    if not kind then return nil end
+    -- Lua patterns have no alternation: match the kind, then check it.
+    local kind, path = string.match(id, "^rbxtemp://([^/]+)/(.+)$")
+    if kind ~= "kfs" and kind ~= "clip" then return nil end
     local node = game
     for part in string.gmatch(path, "[^%.]+") do
         node = node and node:FindFirstChild(part)
