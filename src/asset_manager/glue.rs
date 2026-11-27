@@ -127,6 +127,7 @@ impl Editor {
             project_name: &project_name,
             universe_id,
             place_id,
+            place: doc_ref.path.as_deref(),
             instance_name: &name_fn,
         };
         self.asset_manager.show(ui, &dctx);

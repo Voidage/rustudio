@@ -668,9 +668,18 @@ Plan:
 6. **Cook integration.** The cook tool starts from the ledger when the place
    has been played signed in, then static-scans and downloads to fill gaps.
    The ledger is the authoritative list of what a real playthrough touched.
-7. **UI.** Settings > Assets: cache location, current size, the keep-offline
-   toggle, and “Export assets for this place”. Asset Manager: per-place list
-   and status. A toolbar action is enough for the MVP.
+7. **UI — per-place view and local imports done.** Asset Manager’s **This
+   Place** scope lists the open place’s captured assets (id, status, size,
+   version, cache file) with a copy action for `rbxassetid://…`, and the
+   files imported into the place’s own `assets/` folder with a copy action
+   for their relative reference (`assets/<name>`). **Export for Offline
+   Use** runs the same `rustudio-cook export` a bundle uses. Bulk Import
+   also has **Import Locally into This Place**: images, sounds and meshes
+   are copied into `<place folder>/assets/`, `.rustudio-local-content` is
+   created so the engine resolves the relative paths, and `.rbxm/.rbxmx`
+   are inserted into the DataModel as before. Nothing is uploaded. Still
+   open: the cache size/retention toggle and the durable library mirror
+   (item 2).
 8. **Failure and version handling.** Keep versioned entries
    (`<id>_v<version>.bin`); a later version never overwrites an older one
    when a place asks for it. Record failed requests so the export can fail
@@ -834,8 +843,8 @@ movement/camera and default animation.
 - If/when upstream animation authoring tools land, their preview reuses the
   same direct playback path; no separate integration is required.
 - Direct-clip replication, with F8 only if path-based ids are not enough.
-- Asset Manager per-place view, cache size/retention UI, and the optional
-  durable asset library mirror.
+- Asset Manager per-place view and local imports (done); cache
+  size/retention UI and the optional durable asset library mirror remain.
 - Download mode for the content pack: fetch, hash check, per-user install,
   reuse, and update.
 - Studio UI actions for Build/Update Content Pack (wraps `gamepack`); this
@@ -1074,11 +1083,15 @@ Update this table on every sync.
     transport for the replication ops and remotes, join/player/character
     management, and ownership. `rustudio-net`'s transport and replicator
     vocabulary are a starting point; it is a feature, not a patch.
-19. **Asset uploader:** upstream 0.6's Asset Manager uploads to Roblox. The
-    local half (copy an imported/uploaded file into the project's
-    `assets/<id>.<ext>` + manifest, then let the cook consume it) is
-    downstream F4 work; patching the upstream UI is not worth the rebase
-    surface, and publishing can reuse `rustudio_account`'s upload call.
+19. **Asset uploader and This Place:** upstream 0.6's Asset Manager uploads
+    to Roblox; that path is untouched. The downstream F4 patch adds a
+    **This Place** scope and **Import Locally into This Place**: files are
+    copied to `<place folder>/assets/`, `.rustudio-local-content` marks the
+    folder as local content, and the reference to paste is the relative path
+    (`assets/<name>`) — no upload and no synthetic asset id. The cook
+    already bundles relative files and the marker, so a shipped game keeps
+    them. The patch is small and lives in `src/asset_manager/`; publishing
+    can still reuse `rustudio_account`'s upload call.
 
 ---
 

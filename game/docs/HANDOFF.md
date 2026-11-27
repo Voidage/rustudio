@@ -37,6 +37,16 @@ Phase 2 so far:
   `default_scripts::studio_dir` validate the pack's `content/` and
   `ExtraContent/scripts/PlayerScripts` halves separately. The Studio-layout
   variables remain for development and the zero-patch smoke test.
+- **Asset Manager per-place view and local imports (F4) — done.** Asset
+  Manager has a **This Place** scope: the open place's captured assets from
+  the capture ledger (copy `rbxassetid://…`) and the files in its own
+  `assets/` folder (copy the relative reference, `assets/<name>`), plus
+  **Export for Offline Use**. Bulk Import's **Import Locally into This
+  Place** copies images, sounds and meshes into the place folder's `assets/`
+  and writes `.rustudio-local-content` so the engine resolves them; models
+  are inserted. No upload is involved. The captured list also caught the
+  once-per-line JSON ledger writes being interleaved by concurrent
+  captures — fixed with one locked write per record.
 - **F9 game-scoped paths — done.** The launcher sets
   `RUSTUDIO_HOME=<bundle>/home`; `paths::data/config/state/cache/home` all
   resolve under it, so a game cannot read the person's settings, Studio
@@ -48,8 +58,8 @@ Phase 2 so far:
 
 Phase 2 remaining (suggested order):
 
-1. Asset Manager per-place view, cache size/retention UI, optional durable
-   asset-library mirror (§8.4).
+1. Asset Manager cache size/retention UI and the optional durable
+   asset-library mirror (the per-place view and local imports are done).
 2. Content pack download mode: fetch, hash check, per-user install, reuse,
    update (§7.1).
 3. Studio UI actions for Build/Update Content Pack (wraps `gamepack`).
@@ -125,9 +135,9 @@ Phase 1 (complete):
   There is no "keep downloaded assets" toggle: the cache has no eviction,
   so retention is already the behaviour; the toggle belongs with the Phase 2
   Asset Manager UI (§8.4 item 2). The asset-manager local-copy idea (§18.19)
-  is **not done** either: it patches the upstream upload UI, which §18.19
-  itself rates as not worth the rebase surface; the ledger + export cover
-  the offline goal.
+  is **done** in the small downstream patch described under "Current state":
+  This Place lists the ledger and the place's `assets/` files, and Bulk
+  Import can copy files there without an upload.
 
 - **Launcher, CI and release (Phase 1 item 3).**
   The launcher's log now starts with the game's name, version and id; a

@@ -1,6 +1,8 @@
 //! Drawing the Asset Manager panel 1:1 with Roblox Studio's modern Asset
 //! Manager, in rustudio's dark Studio theme (`theme.rs`) and Tabler icons.
 
+use std::path::{Path, PathBuf};
+
 use egui::{Align2, Color32, FontFamily, FontId, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Vec2};
 use rbx_dom_weak::types::Ref;
 
@@ -114,6 +116,8 @@ pub struct DrawCtx<'a> {
     pub project_name: &'a str,
     pub universe_id: Option<u64>,
     pub place_id: Option<u64>,
+    /// The open place's file, for the This Place ledger view.
+    pub place: Option<&'a Path>,
     pub instance_name: &'a dyn Fn(Ref) -> String,
 }
 
@@ -133,7 +137,16 @@ impl AssetManager {
                 let key = format!("group:{gid}");
                 self.ensure_inventory(&key, Some(gid), false);
             }
-            Scope::Experience | Scope::RecentUploads => {}
+            Scope::Experience | Scope::RecentUploads | Scope::ThisPlace => {}
+        }
+
+        // "This Place" reads the capture ledger when it opens or the open
+        // place changes; the Refresh button also clears `loaded`.
+        if matches!(self.persist.scope, Scope::ThisPlace) {
+            let current = self.local.requested.as_deref();
+            if !self.local.loaded || current != dctx.place {
+                self.local.refresh(dctx.place);
+            }
         }
 
         // If user typed a numeric ID or rbxassetid:// URI, trigger a lookup.
@@ -154,7 +167,7 @@ impl AssetManager {
         let mut content_top = toolbar_rect.bottom();
 
         // Active filter chips strip (only when filters are active).
-        if self.active_filter_count() > 0 && !matches!(self.persist.scope, Scope::Places) {
+        if self.active_filter_count() > 0 && !matches!(self.persist.scope, Scope::Places | Scope::ThisPlace) {
             let chips_h = 28.0;
             let chips_rect = Rect::from_min_size(Pos2::new(total_rect.min.x, content_top), Vec2::new(total_rect.width(), chips_h));
             self.draw_filter_chips(ui, chips_rect);
@@ -177,7 +190,9 @@ impl AssetManager {
         } else {
             0.0
         };
-        let show_details = self.persist.details_open && body_rect.width() - sidebar_w >= 460.0;
+        let show_details = self.persist.details_open
+            && body_rect.width() - sidebar_w >= 460.0
+            && !matches!(self.persist.scope, Scope::ThisPlace);
         let details_w = if show_details { 244.0 } else { 0.0 };
 
         if show_sidebar {
@@ -215,14 +230,19 @@ impl AssetManager {
             self.draw_details(ui, det_rect, &visible, dctx);
         }
 
-        self.draw_status_bar(ui, status_rect, visible.len());
+        let count = if matches!(self.persist.scope, Scope::ThisPlace) {
+            self.local.rows.len() + self.local.imports.len()
+        } else {
+            visible.len()
+        };
+        self.draw_status_bar(ui, status_rect, count);
 
         // Allocate the whole rect so parent scroll/dock stays clean.
         ui.allocate_rect(total_rect, Sense::hover());
 
         // Modals (Folder Create/Rename & Bulk Import).
         self.draw_folder_dialog(ui.ctx());
-        self.draw_import_modal(ui.ctx());
+        self.draw_import_modal(ui.ctx(), dctx.place);
     }
 
     // ------------------------------------------------------------------ toolbar
@@ -466,6 +486,10 @@ impl AssetManager {
                 crumbs.push((dctx.project_name.to_string(), Scope::Experience));
                 crumbs.push(("In Experience".into(), Scope::Experience));
             }
+            Scope::ThisPlace => {
+                crumbs.push((dctx.project_name.to_string(), Scope::Experience));
+                crumbs.push(("This Place".into(), Scope::ThisPlace));
+            }
             Scope::RecentUploads => {
                 crumbs.push(("Recent".into(), Scope::RecentUploads));
                 crumbs.push(("Uploads".into(), Scope::RecentUploads));
@@ -564,6 +588,19 @@ impl AssetManager {
                 .clicked()
                 {
                     self.navigate(Scope::Experience);
+                }
+                if sidebar_item(
+                    ui,
+                    "database",
+                    "This Place",
+                    matches!(self.persist.scope, Scope::ThisPlace),
+                    Some(self.local.rows.len()),
+                    10.0,
+                )
+                .clicked()
+                {
+                    self.navigate(Scope::ThisPlace);
+                    self.local.loaded = false;
                 }
             }
 
@@ -744,8 +781,16 @@ impl AssetManager {
     fn draw_main(&mut self, ui: &mut egui::Ui, rect: Rect, visible: &[AssetEntry], dctx: &DrawCtx<'_>) {
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
 
+        // "This Place" is a ledger table, not an AssetEntry grid.
+        if matches!(self.persist.scope, Scope::ThisPlace) {
+            self.draw_local(&mut child, dctx);
+            return;
+        }
+
         // Scope-specific banners / signed-out / empty states.
         match &self.persist.scope {
+            // Handled above; kept for exhaustiveness.
+            Scope::ThisPlace => {}
             Scope::Places => {
                 if dctx.universe_id.is_none() {
                     draw_empty_state(
@@ -890,6 +935,165 @@ impl AssetManager {
         match self.persist.view {
             ViewMode::Grid => self.draw_grid(&mut child, &subfolders, visible),
             ViewMode::List => self.draw_list(&mut child, &subfolders, visible),
+        }
+    }
+
+    /// The capture-ledger view for the open place: what was requested, how
+    /// it settled, where the cache file is, and the offline export action.
+    fn draw_local(&mut self, ui: &mut egui::Ui, dctx: &DrawCtx<'_>) {
+        let cache = rustudio_core::assets::cache_dir();
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("This Place").font(bold(15.0)));
+            ui.label(
+                RichText::new(
+                    dctx.place
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|| "unsaved place".into()),
+                )
+                .size(11.5)
+                .color(theme::TEXT_DIM),
+            );
+            if ui.button("Refresh").clicked() {
+                self.local.refresh(dctx.place);
+            }
+            let can_export = dctx.place.is_some() && !self.local.rows.is_empty();
+            if ui
+                .add_enabled(can_export, egui::Button::new("Export for Offline Use"))
+                .on_hover_text(
+                    "Copies this place's cached assets into <cache>/offline-export/<place>/ with hashes \
+                     (the same rustudio-cook export a release bundle uses).",
+                )
+                .clicked()
+            {
+                if let Some(place) = dctx.place {
+                    match self.local.export(place) {
+                        Ok(text) => {
+                            self.local.export_status = Some((true, text.trim().to_string()));
+                            self.log.push((false, "offline export finished".into()));
+                        }
+                        Err(e) => {
+                            self.local.export_status = Some((false, e.clone()));
+                            self.log.push((true, e));
+                        }
+                    }
+                }
+            }
+        });
+        ui.add_space(2.0);
+        ui.label(
+            RichText::new(format!(
+                "{} captured · {} local file(s) · {} · cache {}",
+                self.local.rows.len(),
+                self.local.imports.len(),
+                format_bytes(self.local.total_size()),
+                cache.display()
+            ))
+            .size(11.5)
+            .color(theme::TEXT_DIM),
+        );
+        if let Some(err) = &self.local.error {
+            ui.label(RichText::new(err).size(11.5).color(theme::ERROR));
+        }
+        if let Some((ok, text)) = &self.local.export_status {
+            ui.label(RichText::new(text).size(11.5).color(if *ok { GOOD } else { theme::ERROR }));
+        }
+        ui.separator();
+
+        if dctx.place.is_none() {
+            ui.label(
+                RichText::new("Save this place first: the capture ledger tags assets with the place file.")
+                    .color(theme::TEXT_DIM),
+            );
+            return;
+        }
+        if self.local.rows.is_empty() && self.local.imports.is_empty() {
+            ui.label(
+                RichText::new(
+                    "Nothing captured or imported for this place yet. Play the place once so it \
+                     requests its assets, then Refresh; or use Bulk Import > Import Locally.",
+                )
+                .color(theme::TEXT_DIM),
+            );
+            return;
+        }
+        // Both tables share one scroll area: a bare ScrollArea after the
+        // first table used every pixel left in the panel and clipped the
+        // second one out of view (the local files, with 20+ captured rows).
+        // Local files come first — this view is the place's own list.
+        let mut copy_id = None;
+        let mut copy_path = None;
+        egui::ScrollArea::vertical().id_salt("am_local_scroll").show(ui, |ui| {
+            if !self.local.imports.is_empty() {
+                ui.label(
+                    RichText::new("Local files (paste the reference into TextureId, SoundId, MeshId, Image, …)")
+                        .font(bold(12.0)),
+                );
+                egui::Grid::new("am_local_files")
+                    .num_columns(4)
+                    .striped(true)
+                    .spacing([18.0, 5.0])
+                    .show(ui, |ui| {
+                        for h in ["File", "Size", "Reference", ""] {
+                            ui.label(RichText::new(h).font(bold(11.0)).color(theme::TEXT_DIM));
+                        }
+                        ui.end_row();
+                        for file in &self.local.imports {
+                            let name = file.file.file_name().and_then(|n| n.to_str()).unwrap_or("-");
+                            ui.label(name).on_hover_text(file.file.display().to_string());
+                            ui.label(format_bytes(file.size));
+                            ui.label(&file.relative);
+                            if ui.small_button("Copy").clicked() {
+                                copy_path = Some(file.relative.clone());
+                            }
+                            ui.end_row();
+                        }
+                    });
+            }
+            if !self.local.rows.is_empty() {
+                ui.add_space(10.0);
+                ui.label(RichText::new("Captured cloud assets").font(bold(12.0)));
+                egui::Grid::new("am_local_grid")
+                    .num_columns(6)
+                    .striped(true)
+                    .spacing([18.0, 5.0])
+                    .show(ui, |ui| {
+                        for h in ["Asset ID", "Status", "Size", "Version", "Cache file", ""] {
+                            ui.label(RichText::new(h).font(bold(11.0)).color(theme::TEXT_DIM));
+                        }
+                        ui.end_row();
+                        for row in &self.local.rows {
+                            ui.label(row.id.to_string());
+                            ui.label(
+                                RichText::new(&row.status)
+                                    .color(if row.status == "cached" { GOOD } else { theme::ERROR }),
+                            );
+                            ui.label(format_bytes(row.size));
+                            ui.label(row.version.map(|v| v.to_string()).unwrap_or_else(|| "latest".into()));
+                            let name = row.file.file_name().and_then(|n| n.to_str()).unwrap_or("-");
+                            ui.label(name).on_hover_text(row.file.display().to_string());
+                            if ui
+                                .small_button("Copy")
+                                .on_hover_text(
+                                    "Copy rbxassetid://… for TextureId, Image, SoundId, AnimationId or MeshId.",
+                                )
+                                .clicked()
+                            {
+                                copy_id = Some(row.id);
+                            }
+                            ui.end_row();
+                        }
+                    });
+            }
+        });
+        if let Some(path) = copy_path {
+            self.actions.push(Action::CopyText(path.clone(), format!("Copied {path}")));
+        }
+        if let Some(id) = copy_id {
+            self.actions.push(Action::CopyText(
+                format!("rbxassetid://{id}"),
+                format!("Copied rbxassetid://{id}"),
+            ));
         }
     }
 
@@ -1397,7 +1601,11 @@ impl AssetManager {
                 } else if primary_btn(ui, "Insert").clicked() {
                     self.actions.push(Action::Insert { entry: entry.clone(), into_selection: false });
                 }
-                if ui.button("Copy ID").clicked() {
+                if ui
+                    .button("Copy Reference")
+                    .on_hover_text("Copy rbxassetid://… for TextureId, Image, SoundId, AnimationId or MeshId.")
+                    .clicked()
+                {
                     self.actions.push(Action::CopyText(format!("rbxassetid://{}", entry.id), format!("Copied rbxassetid://{}", entry.id)));
                 }
             });
@@ -1661,7 +1869,7 @@ impl AssetManager {
         }
     }
 
-    fn draw_import_modal(&mut self, ctx: &egui::Context) {
+    fn draw_import_modal(&mut self, ctx: &egui::Context, place: Option<&Path>) {
         let Some(mut modal) = self.import_modal.take() else { return };
         let mut open = true;
         let mut close_clicked = false;
@@ -1722,6 +1930,15 @@ impl AssetManager {
                                 ImportStatus::LocalImported => {
                                     ui.label(RichText::new("✔ Inserted locally").size(11.0).color(GOOD));
                                 }
+                                ImportStatus::LocalFile(path) => {
+                                    if ui.small_button("Copy").clicked() {
+                                        self.actions.push(Action::CopyText(
+                                            path.clone(),
+                                            format!("Copied {path}"),
+                                        ));
+                                    }
+                                    ui.label(RichText::new(format!("✔ {path}")).size(11.0).color(GOOD));
+                                }
                                 ImportStatus::Failed(e) => {
                                     ui.label(RichText::new("Failed").size(11.0).color(theme::ERROR)).on_hover_text(e);
                                 }
@@ -1746,17 +1963,64 @@ impl AssetManager {
                             self.actions.push(Action::OpenAccount);
                         }
                     }
-                    let has_local_models = modal.items.iter().any(|i| {
-                        matches!(i.status, ImportStatus::Pending)
-                            && matches!(i.path.extension().and_then(|e| e.to_str()), Some("rbxm" | "rbxmx"))
-                    });
-                    if has_local_models && ui.button("Insert .rbxm/.rbxmx Locally").clicked() {
-                        for (idx, item) in modal.items.iter_mut().enumerate() {
-                            if matches!(item.status, ImportStatus::Pending)
-                                && matches!(item.path.extension().and_then(|e| e.to_str()), Some("rbxm" | "rbxmx"))
-                            {
-                                item.status = ImportStatus::LocalImported;
-                                local_imports.push((idx, item.path.clone()));
+                    let has_pending = modal.items.iter().any(|i| matches!(i.status, ImportStatus::Pending));
+                    if has_pending
+                        && ui
+                            .button("Import Locally into This Place")
+                            .on_hover_text(
+                                "Copies images, sounds and meshes into the place's assets/ folder and marks the \
+                                 folder as local content (no Roblox upload). Models (.rbxm/.rbxmx) are inserted \
+                                 into the place. The reference to paste is assets/<name>.",
+                            )
+                            .clicked()
+                    {
+                        match place {
+                            None => self.log.push((
+                                true,
+                                "Save the place first: local files live beside it.".into(),
+                            )),
+                            Some(place) => {
+                                // Models go into the DataModel, as before.
+                                for (idx, item) in modal.items.iter_mut().enumerate() {
+                                    if matches!(item.status, ImportStatus::Pending)
+                                        && matches!(
+                                            item.path.extension().and_then(|e| e.to_str()),
+                                            Some("rbxm" | "rbxmx")
+                                        )
+                                    {
+                                        item.status = ImportStatus::LocalImported;
+                                        local_imports.push((idx, item.path.clone()));
+                                    }
+                                }
+                                let files: Vec<PathBuf> = modal
+                                    .items
+                                    .iter()
+                                    .filter(|i| matches!(i.status, ImportStatus::Pending))
+                                    .map(|i| i.path.clone())
+                                    .collect();
+                                match super::local::LocalAssets::import_local_files(place, &files) {
+                                    Ok(imported) => {
+                                        let mut imported = imported.into_iter();
+                                        for item in modal.items.iter_mut() {
+                                            if !matches!(item.status, ImportStatus::Pending) {
+                                                continue;
+                                            }
+                                            if let Some(file) = imported.next() {
+                                                self.log.push((
+                                                    false,
+                                                    format!(
+                                                        "Imported \"{}\" as {}",
+                                                        item.display_name, file.relative
+                                                    ),
+                                                ));
+                                                item.status = ImportStatus::LocalFile(file.relative);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        self.log.push((true, format!("Local import failed: {e}")))
+                                    }
+                                }
                             }
                         }
                     }
@@ -1809,6 +2073,9 @@ impl AssetManager {
             }
             Scope::Experience => {
                 self.experience_rev = u64::MAX;
+            }
+            Scope::ThisPlace => {
+                self.local.loaded = false;
             }
             Scope::MyInventory { .. } => self.ensure_inventory("user", None, true),
             Scope::Group { group_id, .. } => {

@@ -12,6 +12,7 @@
 
 pub mod api;
 pub mod glue;
+pub mod local;
 pub mod ui;
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -170,6 +171,9 @@ pub enum Scope {
     Places,
     /// Project > In Experience (all assets referenced by the open DataModel).
     Experience,
+    /// Project > This Place: the capture ledger's cloud assets for the open
+    /// place, with their cache files and the offline export action.
+    ThisPlace,
     /// Inventories > My Inventory (optionally inside a nested folder id).
     MyInventory { folder: Option<String> },
     /// Inventories > Group (optionally inside a nested folder id).
@@ -422,7 +426,11 @@ pub enum ImportStatus {
     Pending,
     Uploading,
     Done(u64),
+    /// A model inserted into the place (`rbxm`/`rbxmx`).
     LocalImported,
+    /// A file copied beside the place; the value is its relative reference
+    /// (`assets/name.png`).
+    LocalFile(String),
     Failed(String),
 }
 
@@ -633,6 +641,8 @@ pub struct AssetManager {
     pub places: PlacesCache,
     pub inventories: HashMap<String, InventoryCache>,
     pub experience_assets: Vec<AssetEntry>,
+    /// The "This Place" ledger view (capture ledger + offline export).
+    pub local: local::LocalAssets,
     pub experience_rev: u64,
     pub experience_root: Ref,
     /// When the in-experience list was last rebuilt: edits (and Play, whose
@@ -696,6 +706,7 @@ impl Default for AssetManager {
             places: PlacesCache::default(),
             inventories: HashMap::new(),
             experience_assets: Vec::new(),
+            local: local::LocalAssets::default(),
             experience_rev: u64::MAX,
             experience_root: Ref::none(),
             experience_scanned: None,
@@ -1181,6 +1192,8 @@ impl AssetManager {
         let mut list: Vec<AssetEntry> = match &self.persist.scope {
             Scope::Places => self.places.places.clone(),
             Scope::Experience => self.experience_assets.clone(),
+            // ThisPlace is rendered from `self.local`, not `AssetEntry`.
+            Scope::ThisPlace => Vec::new(),
             Scope::RecentUploads => self.persist.recent_uploads.clone(),
             Scope::MyInventory { folder } => {
                 let items = self.inventories.get("user").map(|c| c.items.as_slice()).unwrap_or(&[]);
