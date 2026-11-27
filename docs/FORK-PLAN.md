@@ -141,6 +141,7 @@ MyGame/
     PlatformContent/...
   logs/                   # created at runtime
   datastores/             # local DataStore records (F5)
+  home/                   # private settings/caches/crash reports (F9)
 ```
 
 `game.json`:
@@ -244,6 +245,7 @@ development.
 | `RUSTUDIO_LIVE_DATA` | `0` | Keep DataStores/MemoryStores/Messaging local. |
 | `RUSTUDIO_CACHE_DIR` | `<bundle>/cache` | Bundled, first-priority disk asset cache. |
 | `RUSTUDIO_DATASTORE_DIR` | `<bundle>/datastores` | F5: the local DataStore backend's files. Also selects local DataStores for a local place. |
+| `RUSTUDIO_HOME` | `<bundle>/home` | F9: scopes settings, game settings, caches and crash reports to the game. Empty means the person's folders. |
 | `RUSTUDIO_LOCAL_ASSETS` | `<bundle>/assets` | Optional secondary local store. |
 | `RUSTUDIO_ENGINE_CONTENT_DIR` | resolved pack root | F3: the game content root. The engine validates `content/` and `ExtraContent/scripts/PlayerScripts` separately. |
 | `RUSTUDIO_STUDIO_DIR` | a Studio root | Development only; still supported after F3. |
@@ -267,13 +269,16 @@ Notes:
   smoke test.
 - A downloaded pack is installed under the game's per-user data directory
   (for example `<data>/<game-id>/content-pack/<version>/`) and reused.
-- User settings can leak in from the user's rustudio config (solver, quality,
-  etc.). The critical behaviour switches above are env-overridden, but F6
-  (game-scoped config home) is the clean fix if settings isolation matters.
+- F9 sets `RUSTUDIO_HOME=<bundle>/home`, so settings, game settings, caches
+  and crash reports live under the game folder and cannot read the person's
+  rustudio config. `paths::home()` is scoped too, so Studio/Vinegar lookups
+  and profile folders stay hermetic; set `RUSTUDIO_HOME` empty to opt back
+  into the person's folders.
 - `RUSTUDIO_CACHE_DIR` also holds the pipeline cache. A writable cache is
   required for the MVP.
-- Crash reports still go to the user cache directory; launcher logs cover the
-  common case. Redirecting crashes into `logs/` is a polish item.
+- Crash reports go to `<bundle>/home/cache/rustudio/crash` (F9); launcher
+  logs cover the common case. Copying them into `logs/` is still a polish
+  item.
 
 ---
 
@@ -740,6 +745,7 @@ teleports. Every patch is listed here and in `git log`.
 | F3 | `crates/rustudio-core/src/default_scripts.rs`, `assets.rs` | `RUSTUDIO_ENGINE_CONTENT_DIR` as the first content root (validated per half) | 10–20 lines | Yes | 2 (done) |
 | F4 | `crates/rustudio-core/src/assets.rs`, `player_app.rs` / `src/app.rs` (2-line place hooks) (+ `rustudio-cook export`) | Asset capture ledger + requested-ID manifest/export (the cache already persists the bytes) | 40–80 lines | Yes | 1 (done) |
 | F5 | `crates/rustudio-engine/src/domains/data_local.rs`, new `data_store_files.rs` | File-backed local DataStores: the same `DataStoreService` API, records under `<bundle>/datastores` | 150–300 lines | Maybe | 2 |
+| F9 | `crates/rustudio-core/src/paths.rs` | `RUSTUDIO_HOME` scopes data/config/state/cache/crash to a game folder | ~25 lines | No (fork-only; upstream has no bundle use case) | 2 |
 | F6 | `crates/rustudio-player/src/play_teleport.rs` | Local multi-place teleports | larger | No | 3 |
 | F7 | `crates/rustudio-engine/src/library.luau` (plus `anim_tracks.rs` / `anim_replicate.rs` only if needed) | Direct KeyframeSequence / AnimationClip loading, no upload or asset id; stable clip ids for replication | 20–80 lines | Maybe (upstream targets API parity; likely fork-only) | 1 (load), 2 (replication) |
 | U2 | `vendor/egui_dock`, `src/layout_store.rs` | A dock leaf whose active tab index is past the end draws no tab body (a blank 3D viewport); clamp on tab removal and on layout load | ~25 lines | Yes | done (upstream bug; PR not sent) |
@@ -837,7 +843,7 @@ movement/camera and default animation.
 - Optional content pack additions only if a game needs them. The default
   pack keeps Studio's R15/R6 bodies, Animate and font fallbacks unchanged;
   no custom rig is planned.
-- Game-scoped config/crash/log paths (F6 candidate).
+- Game-scoped config/crash/log paths (F9, done).
 - Offline service messages, “allow network” opt-in.
 - Cross-platform packaging, signing/notarization as distribution requires.
 
@@ -1018,14 +1024,14 @@ Update this table on every sync.
 | First-launch download breaks the offline promise | Bundled is the default; download mode is explicit and tested |
 | Pack download fails, is corrupted, or is incompatible | Hash + engine range check; fallback; retry next launch |
 | Pack updates break older games | Versioned packs; each game pins its pack/engine; updates are opt-in |
-| User's saved rustudio settings change game behavior | Env overrides for critical keys; F6 game-scoped home |
+| User's saved rustudio settings change game behavior | Env overrides for critical keys; F9 game-scoped home |
 | Network calls from a game or a service | Offline smoke with a real network namespace; F2; log blocked calls |
 | Cook misses a dynamically built asset ID | Script regex pass + full playthrough capture + fail on unresolved |
 | Own PlayerModule incompatible with games expecting the standard API | Implement `GetControls`/`GetCameras` and test with fixture places |
 | Upstream animation API churn (F7 touches active code) | Keep F7 a thin wrapper; coordinate with upstream; re-run upstream animation tests |
 | Direct clip replication uses local ids | Stable path/attribute ids in F7; split F8 only if needed |
 | Edit-mode animation preview needs an Animator step outside Play | Small preview tick; keep the runtime path identical |
-| Read-only install cannot write cache/DataStores | Decide portable vs. per-user runtime directory early |
+| Read-only install cannot write cache/DataStores/home | Decide portable vs. per-user runtime directory early |
 | Graphics driver/backend differences | Test on all three platforms; keep wgpu backend defaults |
 | Unsigned Windows/macOS binaries trigger warnings | Signing/notarization in Phase 2/3 |
 | DataStore record corruption | Atomic writes, schema version; a corrupt or newer record is a loud error (backup later) |
@@ -1137,6 +1143,7 @@ offline test. §8.4 automates this with a per-place ledger and export.
 | `RUSTUDIO_LIVE_DATA` | `rustudio_settings.rs` | Only `1` enables live cloud data. |
 | `RUSTUDIO_CACHE_DIR` | `assets::cache_dir` | Assets + pipeline cache. |
 | `RUSTUDIO_DATASTORE_DIR` | `domains::data::datastore_root` | F5: local DataStore records; also enables local DataStores for a local place. |
+| `RUSTUDIO_HOME` | `paths::scoped_home` | F9: scopes all per-user paths to a game folder; empty means the person's. |
 | `RUSTUDIO_LOCAL_ASSETS` | `rustudio_settings.rs` | `<id>` / `<id>.<ext>` store. |
 | `RUSTUDIO_ENGINE_CONTENT_DIR` | `assets::content_dir`, `default_scripts::studio_dir` | F3: the pack root; validated per half. |
 | `RUSTUDIO_CONTENT_DIR` | `assets::content_dir` | `rbxasset://` root (development). |

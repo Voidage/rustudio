@@ -19,6 +19,7 @@ MyGame/
     assets/               <id>_v<version>.bin or <id>_vlatest.bin
   assets/                 optional local store: <id>.<ext>
   datastores/             local DataStore records (created at runtime, F5)
+  home/                   private settings/caches/crash reports (F9)
   content/                optional bundled engine content pack
     content/...
     ExtraContent/scripts/PlayerScripts/...
@@ -43,6 +44,7 @@ different working directory still works.
   "cache": "cache",
   "assets": "assets",
   "datastores": "datastores",
+  "home": "home",
   "content": { "mode": "bundled", "path": "content", "version": "1.0.0" },
   "window": { "title": "My Game", "width": 1600, "height": 900 },
   "args": ["--window", "1600x900"],
@@ -60,6 +62,7 @@ different working directory still works.
 | `cache` | no | Game asset cache (default `cache`). Must be writable: the engine checks it before the network and keeps its pipeline cache there. |
 | `assets` | no | Optional local asset store (default `assets`). Set only when the folder exists. |
 | `datastores` | no | Local DataStore records (default `datastores`, F5). Created if missing. Game scripts still use `DataStoreService`; this is only where the local backend keeps its records. |
+| `home` | no | The game's private home (default `home`, F9). Settings, game settings, caches and crash reports live under it; the person's own rustudio folders are not read. |
 | `content` | no | Engine content pack (§7.1): absent, a mode (`"bundled"`, `"download"`, `"engine"`), an object, or a plain string naming a bundled pack path. |
 | `window` | no | `width`/`height` become `--window WxH` unless `args` already sets one. `title` is used from F1. |
 | `args` | no | Extra player arguments, passed verbatim (the harness escape hatch). |
@@ -100,11 +103,17 @@ so a debug session can override any of them:
 | `RUSTUDIO_LIVE_DATA` | `0` |
 | `RUSTUDIO_CACHE_DIR` | `<bundle>/cache` |
 | `RUSTUDIO_DATASTORE_DIR` | `<bundle>/datastores` (F5) |
+| `RUSTUDIO_HOME` | `<bundle>/home` (F9) |
 | `RUSTUDIO_WINDOW_TITLE` | `window.title`, else the game name (F1) |
 | `RUSTUDIO_LOCAL_ASSETS` | `<bundle>/assets` (only if it exists) |
 | `RUSTUDIO_ENGINE_CONTENT_DIR` | `<pack>` (only when a pack resolves) |
 | `RUSTUDIO_OFFLINE` | `1` when the manifest's `offline` is true (F2) |
 | `RUSTUDIO_ASSET_PLACE` | `<bundle>/<entry>`: the capture ledger's place key (F4) |
+
+`RUSTUDIO_HOME` scopes every per-user path: `paths::config` (rustudio and
+game settings), `paths::cache` (crash reports, diagnostic logs, non-asset
+caches), `paths::state` and `paths::home` (Studio/Vinegar lookups, profile
+folders). A blank `RUSTUDIO_HOME` opts back into the person's folders.
 
 `RUSTUDIO_DATASTORE_DIR` also tells the engine to use its local DataStore
 backend for the bundle's place: a place loaded from a file has `PlaceId 0`,

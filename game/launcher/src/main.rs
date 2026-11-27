@@ -48,6 +48,10 @@ struct Manifest {
     /// Local DataStore records (default `datastores`, F5).
     #[serde(default)]
     datastores: Option<String>,
+    /// Private per-game home for settings, caches and crash reports
+    /// (default `home`, F9).
+    #[serde(default)]
+    home: Option<String>,
     /// Default engine content pack (§7.1): absent, a mode string, or an
     /// object. A plain string is shorthand for a bundled pack at that path.
     #[serde(default)]
@@ -121,6 +125,8 @@ struct Bundle {
     assets: Option<PathBuf>,
     /// Where the engine's local DataStore backend writes records (F5).
     datastores: PathBuf,
+    /// The game's private home: settings, caches, crash reports (F9).
+    home: PathBuf,
     /// `window.title`, else the game name (F1).
     window_title: String,
     content: Content,
@@ -288,6 +294,7 @@ fn resolve(manifest: &Manifest, root: &Path, is_dir: &dyn Fn(&Path) -> bool) -> 
         manifest.datastores.as_deref().unwrap_or("datastores"),
         "datastores",
     )?;
+    let home = relative_to(root, manifest.home.as_deref().unwrap_or("home"), "home")?;
     let window_title = manifest
         .window
         .as_ref()
@@ -309,7 +316,7 @@ fn resolve(manifest: &Manifest, root: &Path, is_dir: &dyn Fn(&Path) -> bool) -> 
     if offline {
         notes.push("offline: true (RUSTUDIO_OFFLINE=1)".into());
     }
-    Ok(Plan { bundle: Bundle { root: root.to_path_buf(), entry, engine, cache, assets, datastores, window_title, content, offline }, notes })
+    Ok(Plan { bundle: Bundle { root: root.to_path_buf(), entry, engine, cache, assets, datastores, home, window_title, content, offline }, notes })
 }
 
 fn resolve_content_mode(
@@ -409,6 +416,8 @@ fn env_contract(bundle: &Bundle) -> Vec<(&'static str, OsString)> {
         ("RUSTUDIO_CACHE_DIR", bundle.cache.clone().into_os_string()),
         // F5: the local DataStore backend persists game records here.
         ("RUSTUDIO_DATASTORE_DIR", bundle.datastores.clone().into_os_string()),
+        // F9: settings, caches and crash reports stay inside the game.
+        ("RUSTUDIO_HOME", bundle.home.clone().into_os_string()),
         // F1: the player's window title.
         ("RUSTUDIO_WINDOW_TITLE", bundle.window_title.clone().into()),
         // The capture ledger records this game's asset requests against its
@@ -428,7 +437,7 @@ fn env_contract(bundle: &Bundle) -> Vec<(&'static str, OsString)> {
 }
 
 fn apply_env(bundle: &Bundle, say: &mut impl FnMut(String)) {
-    for dir in [&bundle.cache, &bundle.datastores] {
+    for dir in [&bundle.cache, &bundle.datastores, &bundle.home] {
         if let Err(e) = fs::create_dir_all(dir) {
             say(format!("can't create {}: {e}", dir.display()));
         }
@@ -580,6 +589,7 @@ mod tests {
         assert_eq!(plan.bundle.cache, root.join("cache"));
         assert_eq!(plan.bundle.assets, Some(root.join("assets")));
         assert_eq!(plan.bundle.datastores, root.join("datastores"));
+        assert_eq!(plan.bundle.home, root.join("home"));
         assert_eq!(plan.bundle.window_title, "My Game");
     }
 
@@ -593,6 +603,7 @@ mod tests {
             cache: root.join("cache"),
             assets: Some(root.join("assets")),
             datastores: root.join("datastores"),
+            home: root.join("home"),
             window_title: "My Game".into(),
             content: Content::Bundled { root: root.join("content") },
             offline: true,
@@ -606,6 +617,7 @@ mod tests {
         assert_eq!(get("RUSTUDIO_OFFLINE"), Some(OsString::from("1")));
         assert_eq!(get("RUSTUDIO_CACHE_DIR"), Some(root.join("cache").into_os_string()));
         assert_eq!(get("RUSTUDIO_DATASTORE_DIR"), Some(root.join("datastores").into_os_string()));
+        assert_eq!(get("RUSTUDIO_HOME"), Some(root.join("home").into_os_string()));
         assert_eq!(get("RUSTUDIO_WINDOW_TITLE"), Some(OsString::from("My Game")));
         assert_eq!(get("RUSTUDIO_ASSET_PLACE"), Some(root.join("place/game.rbxlx").into_os_string()));
         assert_eq!(get("RUSTUDIO_LOCAL_ASSETS"), Some(root.join("assets").into_os_string()));
@@ -625,6 +637,7 @@ mod tests {
             cache: root.join("cache"),
             assets: None,
             datastores: root.join("datastores"),
+            home: root.join("home"),
             window_title: "X".into(),
             content: Content::None,
             offline: false,

@@ -8,8 +8,25 @@
 
 use std::path::PathBuf;
 
+/// A game bundle's private home: `RUSTUDIO_HOME` (`<bundle>/home` for a
+/// shipped game), else the person's folders. When set, every per-user path
+/// lives under it, so a game cannot read the person's settings, Studio
+/// content links, caches or crash reports (F9).
+fn scoped_home() -> Option<PathBuf> {
+    scoped_home_from(std::env::var_os("RUSTUDIO_HOME").as_deref())
+}
+
+/// An empty `RUSTUDIO_HOME` is the escape hatch back to the person's own
+/// folders, so it means "not scoped" rather than a path named "".
+fn scoped_home_from(value: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
+    value.filter(|v| !v.is_empty()).map(PathBuf::from)
+}
+
 /// The user's home folder ("." when it can't be found).
 pub fn home() -> PathBuf {
+    if let Some(home) = scoped_home() {
+        return home;
+    }
     #[cfg(unix)]
     let home = std::env::var_os("HOME").map(PathBuf::from);
     #[cfg(not(unix))]
@@ -29,6 +46,9 @@ fn xdg(var: &str, fallback: &str) -> PathBuf {
 /// rustudio already put there (the content link, the Studio download) keep
 /// being found.
 pub fn data() -> PathBuf {
+    if let Some(home) = scoped_home() {
+        return home.join("data");
+    }
     #[cfg(all(unix, not(target_os = "macos")))]
     return home().join(".local/share");
     #[cfg(not(all(unix, not(target_os = "macos"))))]
@@ -37,6 +57,9 @@ pub fn data() -> PathBuf {
 
 /// Settings: `$XDG_CONFIG_HOME` or `~/.config` on Linux.
 pub fn config() -> PathBuf {
+    if let Some(home) = scoped_home() {
+        return home.join("config");
+    }
     #[cfg(all(unix, not(target_os = "macos")))]
     return xdg("XDG_CONFIG_HOME", ".config");
     #[cfg(not(all(unix, not(target_os = "macos"))))]
@@ -45,6 +68,9 @@ pub fn config() -> PathBuf {
 
 /// State that outlives a run: `$XDG_STATE_HOME` or `~/.local/state` on Linux.
 pub fn state() -> PathBuf {
+    if let Some(home) = scoped_home() {
+        return home.join("state");
+    }
     #[cfg(all(unix, not(target_os = "macos")))]
     return xdg("XDG_STATE_HOME", ".local/state");
     #[cfg(not(all(unix, not(target_os = "macos"))))]
@@ -53,6 +79,9 @@ pub fn state() -> PathBuf {
 
 /// Caches: `$XDG_CACHE_HOME` or `~/.cache` on Linux.
 pub fn cache() -> PathBuf {
+    if let Some(home) = scoped_home() {
+        return home.join("cache");
+    }
     #[cfg(all(unix, not(target_os = "macos")))]
     return xdg("XDG_CACHE_HOME", ".cache");
     #[cfg(not(all(unix, not(target_os = "macos"))))]
@@ -136,5 +165,16 @@ mod tests {
     #[test]
     fn api_dump_found() {
         assert!(resource("api-dump.json").is_file());
+    }
+
+    #[test]
+    fn rustudio_home_scopes_only_when_it_has_a_value() {
+        use std::ffi::OsStr;
+        assert_eq!(scoped_home_from(None), None);
+        assert_eq!(scoped_home_from(Some(OsStr::new(""))), None);
+        assert_eq!(
+            scoped_home_from(Some(OsStr::new("/game/home"))),
+            Some(PathBuf::from("/game/home"))
+        );
     }
 }

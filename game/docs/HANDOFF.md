@@ -37,6 +37,12 @@ Phase 2 so far:
   `default_scripts::studio_dir` validate the pack's `content/` and
   `ExtraContent/scripts/PlayerScripts` halves separately. The Studio-layout
   variables remain for development and the zero-patch smoke test.
+- **F9 game-scoped paths — done.** The launcher sets
+  `RUSTUDIO_HOME=<bundle>/home`; `paths::data/config/state/cache/home` all
+  resolve under it, so a game cannot read the person's settings, Studio
+  content links, caches or crash reports. An empty value opts back into the
+  person's folders. Fork-only: upstream has no bundle use case, so no PR is
+  planned.
 - **U3 (not Phase 2):** attachment selection, gizmos and property frames
   landed as a separate upstream-bound commit.
 
