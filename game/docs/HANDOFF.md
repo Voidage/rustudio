@@ -1,4 +1,4 @@
-# Handoff — start here (Phase 1 in progress)
+# Handoff — start here (Phase 2 in progress)
 
 Read this first, then `docs/FORK-PLAN.md` §2 (maintenance rules), §12
 (Phase 1) and `game/docs/PHASE0.md`. The plan is the source of truth; this
@@ -11,11 +11,28 @@ self-contained game bundles that run offline with no account and no Roblox
 Studio install, plus direct KeyframeSequence playback. Upstream is under
 active development, so every change must stay cheap to rebase.
 
-## Current state (2026-11-26)
+## Current state (2026-11-27)
 
-Phase 0 is complete and visually confirmed by the user.
+Phase 0 and Phase 1 are complete (pack v1.1 is deferred until distribution).
+Phase 2 so far:
 
-Phase 1 so far:
+- **Direct-clip replication (F7's second half) — done.** `clip_by_path` used
+  `string.match(id, "^rbxtemp://(kfs|clip)/...")`; Lua patterns have no
+  alternation, so it matched the literal `kfs|clip` and never resolved a
+  path id outside the VM that registered it. Fixed in `library.luau`, with
+  the two-VM acceptance test `direct_clip_track_replicates_by_path_id` and
+  the deliberate parentless-clip case in `replicate.rs`.
+- **F5 local DataStores — implemented; run the full gate before shipping.**
+  The local backend persists records under `<bundle>/datastores`
+  (`RUSTUDIO_DATASTORE_DIR`, set by the launcher) with atomic writes and a
+  schema version. Game scripts still use the ordinary `DataStoreService`
+  API; there is no separate save API. The directory also enables DataStores
+  for a local `PlaceId 0` game, which the editor rule otherwise refuses.
+  Test: `datastores_survive_a_restart`.
+- **U3 (not Phase 2):** attachment selection, gizmos and property frames
+  landed as a separate upstream-bound commit.
+
+Phase 1 (complete):
 
 - **Sync done (twice).** Base moved from 0.5.2 (`3f1ada8`) to 0.6.0
   (`7c2ce14`, upstream main with the Animation Editor, script auto-indent,
@@ -99,7 +116,7 @@ Phase 1 so far:
   upstream base, per-file sha256) and its `.sha256`. Docs:
   `game/docs/RELEASE.md`.
 
-Not started (Phase 1 remaining):
+Phase 1 remaining (deferred):
 
 1. **Pack v1.1:** our own Animate with in-place KeyframeSequences (no cloud
    clip ids, so a cook is not needed for the default animations). v1 uses
@@ -116,8 +133,9 @@ Not started (Phase 1 remaining):
 - Base: **`ade1ff5`** — upstream `main` after PR #46 merged, `Cargo.toml`
   0.6.0.
 - `game` branch (local only, not pushed) is a linear stack on top of it:
-  the Phase 0/cook/content-pack F0 commits, F2, F4, F7, U2, and the Phase 1
-  docs/handoff commits. U1 is gone (merged upstream).
+  the Phase 0/cook/content-pack F0 commits, F2, F4, F7 (including its
+  replication fix), F5, U2, U3, and the Phase 1/2 docs/handoff commits.
+  U1 is gone (merged upstream).
 - **U2** (upstream bug, 2026-11-26): a saved dock layout whose leaf names
   a tab index past the end (a tab was removed without clamping `active`)
   draws an empty panel — the 3D viewport went blank in every build that
@@ -150,6 +168,8 @@ game/build/pack-smoke/pack-smoke             # pack visual check — ask
 - **No screenshots and no mouse/keyboard control.** The user is at the
   computer. Verify with Luau probes, Output logs, `--result`, strace; for
   visual checks, launch the game and ask the user what they see.
+- No virtual machines. Test locally; the user handles visual checks.
+- One subagent at a time, when parallel work genuinely helps.
 - Upstream-first: fixes and generic features go upstream as small PRs
   (FORK-PLAN §2). Downstream code lives in `game/`, `scripts/`.
 - Patch budget: small, single-purpose commits tagged `[fork] F<n>:` (or

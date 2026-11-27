@@ -140,7 +140,7 @@ MyGame/
     ExtraContent/scripts/PlayerScripts/...
     PlatformContent/...
   logs/                   # created at runtime
-  saves/                  # phase 2
+  datastores/             # local DataStore records (F5)
 ```
 
 `game.json`:
@@ -181,8 +181,9 @@ MyGame/
 writable (portable zip/tar). If a game is installed read-only (e.g. Program
 Files), either copy the bundled cache to a per-user cache on first run or
 adopt F2 + a read-only local store. This is an open decision (§18). A
-downloaded content pack and saves naturally live in the per-user game data
-directory, so download mode works with a read-only bundle.
+downloaded content pack and local DataStore records naturally live in the
+per-user game data directory, so download mode works with a read-only
+bundle.
 
 ---
 
@@ -241,6 +242,7 @@ development.
 | `RUSTUDIO_CORE_SCRIPTS` | `0` | Use the native fallback UI instead of Studio CoreScripts. |
 | `RUSTUDIO_LIVE_DATA` | `0` | Keep DataStores/MemoryStores/Messaging local. |
 | `RUSTUDIO_CACHE_DIR` | `<bundle>/cache` | Bundled, first-priority disk asset cache. |
+| `RUSTUDIO_DATASTORE_DIR` | `<bundle>/datastores` | F5: the local DataStore backend's files. Also selects local DataStores for a local place. |
 | `RUSTUDIO_LOCAL_ASSETS` | `<bundle>/assets` | Optional secondary local store. |
 | `RUSTUDIO_STUDIO_DIR` | resolved pack root | Only set when a pack resolved; otherwise unset for fallback. |
 | `RUSTUDIO_CONTENT_DIR` | resolved pack root/content | Same. |
@@ -690,23 +692,28 @@ Also:
 
 ---
 
-## 10. Saves (phase 2)
+## 10. Local DataStores (phase 2, F5)
 
-`domains/data_local.rs` is in-memory only, so single-player progress is lost
-when the process exits.
+These are Roblox DataStores, not a separate save API: scripts keep calling
+`DataStoreService:GetDataStore(...):SetAsync` / `GetAsync`. rustudio's local
+backend (`domains/data_local.rs`) is in-memory only, and a local place
+(`PlaceId 0`) is refused before it gets there, so a shipped game's progress
+is lost when the process exits.
 
 F5 design:
 
-- Add a native local storage bridge (`read`, `write`, `list`, `remove`) backed
-  by files under `<bundle>/saves` or a per-user game directory.
+- Add a native file bridge (`read`, `write`, `list`, `remove`) under
+  `<bundle>/datastores` (`RUSTUDIO_DATASTORE_DIR`). The launcher sets it;
+  the editor leaves it unset and keeps the current in-memory behaviour.
+- A configured datastores directory selects the local backend for a local
+  place, so an offline game's `DataStoreService` calls work.
 - Use atomic writes (write temp, fsync, rename).
-- Key by game id + DataStore name + scope + key.
-- Version the on-disk schema.
+- Key by game id (the bundle directory) + DataStore name + scope + key.
+- Version the on-disk schema; a corrupt or newer record is a loud error.
 - Keep the cloud-backed path untouched and selected only when live data is
   explicitly enabled.
-- Acceptance: a place writes a value, exits, relaunches, reads it back.
-
-If MVP has no saves, document that clearly in the game's README.
+- Acceptance: a place writes a value, exits, relaunches, reads it back
+  (`datastores_survive_a_restart` in `domains/data.rs`).
 
 ---
 
@@ -722,7 +729,7 @@ teleports. Every patch is listed here and in `git log`.
 | F2 | `crates/rustudio-core/src/assets.rs`, `rustudio_settings.rs` | Offline mode: local-first, no network scheduling | 30–60 lines | Yes | 1 |
 | F3 | `crates/rustudio-core/src/default_scripts.rs` | `RUSTUDIO_ENGINE_CONTENT_DIR` as the first content root | 10–20 lines | Yes | 2 (optional) |
 | F4 | `crates/rustudio-core/src/assets.rs`, `player_app.rs` / `src/app.rs` (2-line place hooks) (+ `rustudio-cook export`) | Asset capture ledger + requested-ID manifest/export (the cache already persists the bytes) | 40–80 lines | Yes | 1 (done) |
-| F5 | `crates/rustudio-engine/src/domains/data_local.rs`, new module | File-backed local DataStores | 150–300 lines | Maybe | 2 |
+| F5 | `crates/rustudio-engine/src/domains/data_local.rs`, new `data_store_files.rs` | File-backed local DataStores: the same `DataStoreService` API, records under `<bundle>/datastores` | 150–300 lines | Maybe | 2 |
 | F6 | `crates/rustudio-player/src/play_teleport.rs` | Local multi-place teleports | larger | No | 3 |
 | F7 | `crates/rustudio-engine/src/library.luau` (plus `anim_tracks.rs` / `anim_replicate.rs` only if needed) | Direct KeyframeSequence / AnimationClip loading, no upload or asset id; stable clip ids for replication | 20–80 lines | Maybe (upstream targets API parity; likely fork-only) | 1 (load), 2 (replication) |
 | U2 | `vendor/egui_dock`, `src/layout_store.rs` | A dock leaf whose active tab index is past the end draws no tab body (a blank 3D viewport); clamp on tab removal and on layout load | ~25 lines | Yes | done (upstream bug; PR not sent) |
@@ -804,7 +811,8 @@ movement/camera and default animation.
 
 ### Phase 2 — Product pass (3–5 weeks, estimate)
 
-- F5 local saves.
+- F5 local, file-backed DataStores (the same `DataStoreService` API; no new
+  save API).
 - F1 window title/icon (or accept generic title).
 - F3 clean engine content root.
 - If/when upstream animation authoring tools land, their preview reuses the
@@ -821,8 +829,9 @@ movement/camera and default animation.
 - Offline service messages, “allow network” opt-in.
 - Cross-platform packaging, signing/notarization as distribution requires.
 
-Exit criteria: a game that a non-developer can unzip and play; saves survive
-restarts; logs are findable; no upstream configuration leaks into gameplay.
+Exit criteria: a game that a non-developer can unzip and play; DataStore
+values survive restarts; logs are findable; no upstream configuration leaks
+into gameplay.
 
 ### Phase 3 — Distribution (ongoing)
 
@@ -925,7 +934,8 @@ Run all of these after every sync and before every release.
 4. Clean-home test: no `~/.cache/rustudio`, no `~/.local/share/rustudio`, no
    Studio install.
 5. Fixture place: texture, mesh, sound, in-place KeyframeSequence animation,
-   GUI, and a local save (phase 2). The animation is played both ways: the
+   GUI, and a persisted DataStore value (phase 2: write, exit, relaunch,
+   read back). The animation is played both ways: the
    existing register-then-`LoadAnimation` form and, after F7, the direct
    `humanoid:LoadAnimation(kfs)` form. Assert the track has a real `Length`
    and the rig's `Motor6D.Transform` changes; repeat on R15 and R6.
@@ -1003,10 +1013,10 @@ Update this table on every sync.
 | Upstream animation API churn (F7 touches active code) | Keep F7 a thin wrapper; coordinate with upstream; re-run upstream animation tests |
 | Direct clip replication uses local ids | Stable path/attribute ids in F7; split F8 only if needed |
 | Edit-mode animation preview needs an Animator step outside Play | Small preview tick; keep the runtime path identical |
-| Read-only install cannot write cache/saves | Decide portable vs. per-user runtime directory early |
+| Read-only install cannot write cache/DataStores | Decide portable vs. per-user runtime directory early |
 | Graphics driver/backend differences | Test on all three platforms; keep wgpu backend defaults |
 | Unsigned Windows/macOS binaries trigger warnings | Signing/notarization in Phase 2/3 |
-| Save corruption | Atomic writes, schema version, backup file |
+| DataStore record corruption | Atomic writes, schema version; a corrupt or newer record is a loud error (backup later) |
 | Bundle size | Report size per release; strip release binaries |
 
 ---
@@ -1021,7 +1031,7 @@ Update this table on every sync.
 5. **Network policy:** hard-block by default vs opt-in manifest flag.
 6. **Compatibility target:** own games only, or a best-effort subset of
    existing places.
-7. **Saves:** bundle-local vs per-user directory.
+7. **Local DataStores:** bundle-local vs per-user directory.
 8. **Upstream PRs:** F2, F3, F4 first.
 9. **Direct clip API:** `LoadAnimation(kfs)` (recommended) vs an `Animation`
    wrapper/child convention.
@@ -1114,6 +1124,7 @@ offline test. §8.4 automates this with a per-place ledger and export.
 | `RUSTUDIO_CORE_SCRIPTS` | `rustudio_settings.rs` | `0`/`false`/`off` disables. |
 | `RUSTUDIO_LIVE_DATA` | `rustudio_settings.rs` | Only `1` enables live cloud data. |
 | `RUSTUDIO_CACHE_DIR` | `assets::cache_dir` | Assets + pipeline cache. |
+| `RUSTUDIO_DATASTORE_DIR` | `domains::data::datastore_root` | F5: local DataStore records; also enables local DataStores for a local place. |
 | `RUSTUDIO_LOCAL_ASSETS` | `rustudio_settings.rs` | `<id>` / `<id>.<ext>` store. |
 | `RUSTUDIO_CONTENT_DIR` | `assets::content_dir` | `rbxasset://` root. |
 | `RUSTUDIO_STUDIO_DIR` | `default_scripts::studio_dir` | Must contain `ExtraContent/scripts/PlayerScripts`. |

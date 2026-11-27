@@ -12,6 +12,8 @@ mod budget;
 mod config;
 #[path = "data_local.rs"]
 mod local;
+#[path = "data_store_files.rs"]
+mod store_files;
 #[path = "data_memory.rs"]
 mod memory;
 #[path = "data_memory_backend.rs"]
@@ -190,11 +192,35 @@ pub fn local_mode_for(universe: u64) -> bool {
         && !rustudio_core::rustudio_settings::live_data()
 }
 
+/// The directory the launcher gives a shipped game for its local DataStore
+/// records (`<bundle>/datastores`, FORK-PLAN §6). Unset in the editor, where
+/// Play keeps the current in-memory behaviour.
+pub fn datastore_root() -> Option<std::path::PathBuf> {
+    std::env::var_os("RUSTUDIO_DATASTORE_DIR")
+        .filter(|p| !p.is_empty())
+        .map(std::path::PathBuf::from)
+}
+
 pub fn install(lua: &Lua) -> mlua::Result<()> {
     let universe = PLAY_UNIVERSE.load(std::sync::atomic::Ordering::Relaxed);
-    install_mode(lua, local_mode_for(universe))
+    let datastores = datastore_root();
+    // A datastores directory means a shipped local game: its place is a file
+    // (PlaceId 0), which the editor's published-place rule would refuse.
+    // The launcher pairs it with RUSTUDIO_LIVE_DATA=0, so this also selects
+    // the local backend explicitly rather than mixing disk and cloud.
+    let local_mode = local_mode_for(universe) || datastores.is_some();
+    install_mode_with_datastores(lua, local_mode, datastores)
 }
+
 fn install_mode(lua: &Lua, local_mode: bool) -> mlua::Result<()> {
+    install_mode_with_datastores(lua, local_mode, None)
+}
+
+fn install_mode_with_datastores(
+    lua: &Lua,
+    local_mode: bool,
+    datastores: Option<std::path::PathBuf>,
+) -> mlua::Result<()> {
     lua.set_app_data(State::default());
     lua.set_app_data(budget::Budget::default());
     let create = lua.create_function(|lua, class: String| {
@@ -205,9 +231,53 @@ fn install_mode(lua: &Lua, local_mode: bool) -> mlua::Result<()> {
         lua.app_data_mut::<State>().unwrap().properties.insert(obj.0, props);
         Ok(())
     })?;
+    // F5: when the launcher provided a datastores directory, the local
+    // backend gets a small file bridge. One JSON record per key; the Luau
+    // side keeps the DataStore semantics and the bridge only moves bytes.
+    let datastore_table = match datastores {
+        Some(root) => {
+            let files = store_files::Files::new(root);
+            let t = lua.create_table()?;
+            let f = files.clone();
+            t.set(
+                "read",
+                lua.create_function(move |_, (store, scope, key): (String, String, String)| {
+                    f.read(&store, &scope, &key).map_err(store_files::io_error)
+                })?,
+            )?;
+            let f = files.clone();
+            t.set(
+                "write",
+                lua.create_function(
+                    move |_, (store, scope, key, json): (String, String, String, String)| {
+                        f.write(&store, &scope, &key, &json).map_err(store_files::io_error)
+                    },
+                )?,
+            )?;
+            let f = files.clone();
+            t.set(
+                "remove",
+                lua.create_function(move |_, (store, scope, key): (String, String, String)| {
+                    f.remove(&store, &scope, &key).map_err(store_files::io_error)
+                })?,
+            )?;
+            let f = files.clone();
+            t.set(
+                "keys",
+                lua.create_function(move |_, (store, scope): (String, String)| {
+                    f.keys(&store, &scope).map_err(store_files::io_error)
+                })?,
+            )?;
+            Some(t)
+        }
+        None => None,
+    };
+    let encode = lua
+        .load("return function(v) return game:GetService('HttpService'):JSONEncode(v) end")
+        .eval::<mlua::Function>()?;
     lua.load(local::SOURCE)
         .set_name("=rustudio.data.local")
-        .call::<()>((local_mode, create.clone(), key_props))?;
+        .call::<()>((local_mode, create.clone(), key_props, datastore_table, encode.clone()))?;
     let register =
         lua.create_function(
             |lua,
@@ -222,9 +292,6 @@ fn install_mode(lua: &Lua, local_mode: bool) -> mlua::Result<()> {
     let now = lua.create_function(|lua, ()| {
         Ok(lua.app_data_ref::<World>().map(|w| w.time).unwrap_or(0.0))
     })?;
-    let encode = lua
-        .load("return function(v) return game:GetService('HttpService'):JSONEncode(v) end")
-        .eval::<mlua::Function>()?;
     lua.load(memory::SOURCE)
         .set_name("=rustudio.data.memory")
         .call::<()>((local_mode, create.clone(), register, now, encode.clone()))?;
@@ -318,6 +385,80 @@ shared.__data_integration_done=true
         let out = rt.world_mut().unwrap().output.clone();
         assert!(done, "integration did not finish: {out:?}");
     }
+    /// F5 acceptance (FORK-PLAN §10): a place writes DataStore values, the
+    /// runtime ends, and a fresh runtime reads them back from the same
+    /// directory. The API is the ordinary DataStoreService; the directory
+    /// is the only new thing.
+    #[test]
+    fn datastores_survive_a_restart() {
+        use crate::runtime::{RunMode, Runtime, World};
+        use rustudio_core::doc::Document;
+
+        fn with_datastores<T>(root: &std::path::Path, f: impl FnOnce(&Runtime) -> T) -> T {
+            let rt = Runtime::new().unwrap();
+            rt.enter(World::new(Document::new_place(), RunMode::Run));
+            rt.bind_globals().unwrap();
+            install_mode_with_datastores(&rt.lua, true, Some(root.to_path_buf())).unwrap();
+            f(&rt)
+        }
+
+        let root = std::env::temp_dir()
+            .join(format!("rustudio-datastore-restart-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+
+        with_datastores(&root, |rt| {
+            rt.lua
+                .load(r#"
+                    local service = game:GetService("DataStoreService")
+                    local progress = service:GetDataStore("Progress", "global")
+                    progress:SetAsync("slot", { level = 5, name = "Ada" })
+                    progress:UpdateAsync("plays", function(old) return (old or 0) + 1 end)
+                    local scores = service:GetOrderedDataStore("Scores")
+                    scores:SetAsync("ada", 12)
+                    scores:SetAsync("bo", 7)
+                "#)
+                .exec()
+                .unwrap();
+        });
+
+        // A fresh VM is a relaunched game: the records come from disk.
+        let level: f64 = with_datastores(&root, |rt| {
+            rt.lua
+                .load(r#"
+                    local service = game:GetService("DataStoreService")
+                    local progress = service:GetDataStore("Progress", "global")
+                    local slot, info = progress:GetAsync("slot")
+                    assert(slot.level == 5 and slot.name == "Ada")
+                    assert(type(info.Version) == "string")
+                    assert(progress:GetAsync("plays") == 1)
+                    progress:UpdateAsync("plays", function(old) return (old or 0) + 1 end)
+                    assert(progress:GetAsync("plays") == 2)
+                    local scores = service:GetOrderedDataStore("Scores")
+                    local page = scores:GetSortedAsync(false, 10):GetCurrentPage()
+                    assert(page[1].key == "ada" and page[1].value == 12 and page[2].value == 7)
+                    progress:RemoveAsync("slot")
+                    assert(progress:GetAsync("slot") == nil)
+                    return slot.level
+                "#)
+                .eval()
+                .unwrap()
+        });
+        assert_eq!(level, 5.0);
+
+        // The removal is on disk too.
+        let gone: bool = with_datastores(&root, |rt| {
+            rt.lua
+                .load(r#"
+                    return game:GetService("DataStoreService")
+                        :GetDataStore("Progress", "global"):GetAsync("slot") == nil
+                "#)
+                .eval()
+                .unwrap()
+        });
+        assert!(gone);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn messaging_uses_local_mode_when_unpublished() {
         use rustudio_core::doc::Document;

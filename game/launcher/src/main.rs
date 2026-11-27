@@ -45,6 +45,9 @@ struct Manifest {
     /// Optional local asset store (default `assets`).
     #[serde(default)]
     assets: Option<String>,
+    /// Local DataStore records (default `datastores`, F5).
+    #[serde(default)]
+    datastores: Option<String>,
     /// Default engine content pack (§7.1): absent, a mode string, or an
     /// object. A plain string is shorthand for a bundled pack at that path.
     #[serde(default)]
@@ -118,6 +121,8 @@ struct Bundle {
     cache: PathBuf,
     /// Only an existing directory: never point the engine at a missing path.
     assets: Option<PathBuf>,
+    /// Where the engine's local DataStore backend writes records (F5).
+    datastores: PathBuf,
     content: Content,
     /// The manifest's offline promise: set `RUSTUDIO_OFFLINE=1`.
     offline: bool,
@@ -278,6 +283,11 @@ fn resolve(manifest: &Manifest, root: &Path, is_dir: &dyn Fn(&Path) -> bool) -> 
     let cache = relative_to(root, manifest.cache.as_deref().unwrap_or("cache"), "cache")?;
     let assets = relative_to(root, manifest.assets.as_deref().unwrap_or("assets"), "assets")?;
     let assets = is_dir(&assets).then_some(assets);
+    let datastores = relative_to(
+        root,
+        manifest.datastores.as_deref().unwrap_or("datastores"),
+        "datastores",
+    )?;
 
     let mut notes = Vec::new();
     let content = match &manifest.content {
@@ -294,7 +304,7 @@ fn resolve(manifest: &Manifest, root: &Path, is_dir: &dyn Fn(&Path) -> bool) -> 
     if offline {
         notes.push("offline: true (RUSTUDIO_OFFLINE=1)".into());
     }
-    Ok(Plan { bundle: Bundle { root: root.to_path_buf(), entry, engine, cache, assets, content, offline }, notes })
+    Ok(Plan { bundle: Bundle { root: root.to_path_buf(), entry, engine, cache, assets, datastores, content, offline }, notes })
 }
 
 fn resolve_content_mode(
@@ -393,6 +403,8 @@ fn env_contract(bundle: &Bundle) -> Vec<(&'static str, OsString)> {
         ("RUSTUDIO_CORE_SCRIPTS", "0".into()),
         ("RUSTUDIO_LIVE_DATA", "0".into()),
         ("RUSTUDIO_CACHE_DIR", bundle.cache.clone().into_os_string()),
+        // F5: the local DataStore backend persists game records here.
+        ("RUSTUDIO_DATASTORE_DIR", bundle.datastores.clone().into_os_string()),
         // The capture ledger records this game's asset requests against its
         // own place, so "Save assets for offline use" exports exactly them.
         ("RUSTUDIO_ASSET_PLACE", bundle.entry.clone().into_os_string()),
@@ -413,10 +425,10 @@ fn env_contract(bundle: &Bundle) -> Vec<(&'static str, OsString)> {
 }
 
 fn apply_env(bundle: &Bundle, say: &mut impl FnMut(String)) {
-    let cache_ok = fs::create_dir_all(&bundle.cache)
-        .map_err(|e| format!("can't create cache dir {}: {e}", bundle.cache.display()));
-    if let Err(e) = cache_ok {
-        say(e);
+    for dir in [&bundle.cache, &bundle.datastores] {
+        if let Err(e) = fs::create_dir_all(dir) {
+            say(format!("can't create {}: {e}", dir.display()));
+        }
     }
     for (key, value) in env_contract(bundle) {
         if let Ok(old) = env::var(key) {
@@ -570,6 +582,7 @@ mod tests {
         assert_eq!(plan.bundle.engine, root.join(if cfg!(windows) { "engine/rustudio-player.exe" } else { "engine/rustudio-player" }));
         assert_eq!(plan.bundle.cache, root.join("cache"));
         assert_eq!(plan.bundle.assets, Some(root.join("assets")));
+        assert_eq!(plan.bundle.datastores, root.join("datastores"));
     }
 
     #[test]
@@ -581,6 +594,7 @@ mod tests {
             engine: root.join("engine/rustudio-player"),
             cache: root.join("cache"),
             assets: Some(root.join("assets")),
+            datastores: root.join("datastores"),
             content: Content::Bundled {
                 content_dir: Some(root.join("content/content")),
                 studio_dir: Some(root.join("content")),
@@ -595,6 +609,7 @@ mod tests {
         assert_eq!(get("RUSTUDIO_LIVE_DATA"), Some(OsString::from("0")));
         assert_eq!(get("RUSTUDIO_OFFLINE"), Some(OsString::from("1")));
         assert_eq!(get("RUSTUDIO_CACHE_DIR"), Some(root.join("cache").into_os_string()));
+        assert_eq!(get("RUSTUDIO_DATASTORE_DIR"), Some(root.join("datastores").into_os_string()));
         assert_eq!(get("RUSTUDIO_ASSET_PLACE"), Some(root.join("place/game.rbxlx").into_os_string()));
         assert_eq!(get("RUSTUDIO_LOCAL_ASSETS"), Some(root.join("assets").into_os_string()));
         assert_eq!(get("RUSTUDIO_CONTENT_DIR"), Some(root.join("content/content").into_os_string()));
@@ -610,6 +625,7 @@ mod tests {
             engine: root.join("engine/rustudio-player"),
             cache: root.join("cache"),
             assets: None,
+            datastores: root.join("datastores"),
             content: Content::None,
             offline: false,
         };

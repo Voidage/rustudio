@@ -18,6 +18,7 @@ MyGame/
   cache/
     assets/               <id>_v<version>.bin or <id>_vlatest.bin
   assets/                 optional local store: <id>.<ext>
+  datastores/             local DataStore records (created at runtime, F5)
   content/                optional bundled engine content pack
     content/...
     ExtraContent/scripts/PlayerScripts/...
@@ -41,6 +42,7 @@ different working directory still works.
   "entry": "place/game.rbxlx",
   "cache": "cache",
   "assets": "assets",
+  "datastores": "datastores",
   "content": { "mode": "bundled", "path": "content", "version": "1.0.0" },
   "window": { "title": "My Game", "width": 1600, "height": 900 },
   "args": ["--window", "1600x900"],
@@ -57,6 +59,7 @@ different working directory still works.
 | `entry` | yes | Entry place, relative to the bundle. |
 | `cache` | no | Game asset cache (default `cache`). Must be writable: the engine checks it before the network and keeps its pipeline cache there. |
 | `assets` | no | Optional local asset store (default `assets`). Set only when the folder exists. |
+| `datastores` | no | Local DataStore records (default `datastores`, F5). Created if missing. Game scripts still use `DataStoreService`; this is only where the local backend keeps its records. |
 | `content` | no | Engine content pack (§7.1): absent, a mode (`"bundled"`, `"download"`, `"engine"`), an object, or a plain string naming a bundled pack path. |
 | `window` | no | `width`/`height` become `--window WxH` unless `args` already sets one. `title` is used from F1. |
 | `args` | no | Extra player arguments, passed verbatim (the harness escape hatch). |
@@ -95,11 +98,18 @@ so a debug session can override any of them:
 | `RUSTUDIO_CORE_SCRIPTS` | `0` |
 | `RUSTUDIO_LIVE_DATA` | `0` |
 | `RUSTUDIO_CACHE_DIR` | `<bundle>/cache` |
+| `RUSTUDIO_DATASTORE_DIR` | `<bundle>/datastores` (F5) |
 | `RUSTUDIO_LOCAL_ASSETS` | `<bundle>/assets` (only if it exists) |
 | `RUSTUDIO_CONTENT_DIR` | `<pack>/content` (only when a pack resolves) |
 | `RUSTUDIO_STUDIO_DIR` | `<pack>` (only when it validates) |
 | `RUSTUDIO_OFFLINE` | `1` when the manifest's `offline` is true (F2) |
 | `RUSTUDIO_ASSET_PLACE` | `<bundle>/<entry>`: the capture ledger's place key (F4) |
+
+`RUSTUDIO_DATASTORE_DIR` also tells the engine to use its local DataStore
+backend for the bundle's place: a place loaded from a file has `PlaceId 0`,
+which normally refuses DataStores. The value survives restarts; it is not
+stored in the place file. If the bundle is read-only, this directory must be
+redirected (a per-user location is future work).
 
 The launcher changes its working directory to the bundle root, wires the
 player's stdout and stderr to `logs/latest.log`, propagates the player's exit
