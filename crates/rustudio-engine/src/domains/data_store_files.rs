@@ -15,7 +15,7 @@
 use std::{
     fs,
     io,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -153,7 +153,7 @@ pub fn io_error(e: io::Error) -> mlua::Error {
 
 /// Remove a test's save tree. Best effort; tests should not fail on cleanup.
 #[cfg(test)]
-pub fn remove_tree(root: &Path) {
+pub fn remove_tree(root: &std::path::Path) {
     let _ = fs::remove_dir_all(root);
 }
 
