@@ -872,9 +872,16 @@ movement/camera and default animation.
 - Offline service messages: network is allowed by default; `"network": false`
   is the explicit opt-out with one clear log line per blocked request (done).
 - Packaging: Linux release bundle, checksum and smoke pass (done
-  2026-11-27). Windows/macOS packaging is built by the same script but
+  2026-11-27), and the editor has File > Package Game… for a playable
+  test folder. Windows/macOS packaging is built by the same script but
   tested only when there is a machine for it; signing (GPG) and
   notarization wait for a distribution channel that requires them.
+
+The content pack is a full Studio run-time root (PlatformContent,
+content/{textures,sky,fonts,sounds}, avatar, PlayerScripts and character
+sounds), ~53 MB. The cook captures with the pack and no session, so the
+local body/head/Animate assets land in `cache/assets`; before this a
+package had no studs textures and an invisible head.
 
 Exit criteria: a game that a non-developer can unzip and play; DataStore
 values survive restarts; logs are findable; no upstream configuration leaks

@@ -16,6 +16,20 @@ engine is the unmodified upstream build at a recorded upstream base.
 - Releases are never overwritten: a new version is a new folder and
   archive. Sync work happens on the `game` branch; releases are tags.
 
+## Package a place for testing (Studio)
+
+**File > Package Game…** in the editor (or `scripts/package-place.sh`) cooks
+the open place and assembles a playable folder at `<place folder>/package/<id>/`:
+launcher, player, `game.json`, cooked place and cache, and the content pack.
+Run `<id>` inside it. This is the development "play this build" folder and
+each run replaces it; it has no `release.json` and no archive.
+
+The script fetches Studio's run-time content into the pack on first use
+(surfaces, sky, terrain, fonts, sounds — `scripts/fetch-studio-avatar.sh`);
+a package built without it renders without studs/sky and without the local
+head assets. The editor passes `--allow-missing` so one dead asset does not
+stop a test build; the cook output still lists it.
+
 ## Build a release
 
 ```sh

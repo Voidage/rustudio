@@ -74,6 +74,14 @@ Phase 2 so far:
   connection and log one line per service/request, and asset downloads
   behave as offline. `offline: true` stays about game assets and does not
   cut the network.
+- **Package Game (Studio) — done.** File > Package Game… saves the place,
+  runs `scripts/package-place.sh` in the background and reports the
+  playable folder (`<place folder>/package/<id>/`) in Output. It cooks with
+  the bundle's pack root and no session (so the local head/Animate assets
+  are cached), auto-fetches Studio's run-time content for the pack on first
+  use, and passes `--allow-missing` for test builds. The pack grew to ~53 MB
+  with `PlatformContent/` (studs, sky, terrain, fonts) and the character
+  sounds; without that a shipped game drew no studs and an invisible head.
 - **Release packaging — Linux done.** `scripts/release-bundle.sh` stages
   launcher + engine + game.json + place/assets + `cache/assets` + a built
   content pack, writes `release.json` (version, upstream base, engine
@@ -92,6 +100,8 @@ them:
 - Windows/macOS release runs; GPG signing and notarization.
 - An Experience Settings toggle for "Allow HTTP requests" in the editor
   (bundles enable HttpService; the editor still has no UI).
+- Package Game is Linux/macOS only for now: `package-place.sh` is bash.
+  Windows needs the assembly ported to Rust (release-bundle is bash too).
 
 Skipped by decision (2026-11-27): Studio UI actions for the content pack.
 The `gamepack` CLI is enough, and the editor should not put pack management

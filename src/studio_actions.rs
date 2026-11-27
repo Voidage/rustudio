@@ -84,6 +84,13 @@ impl Editor {
                 }
             }
             "save" | "save_as" => (edit, None),
+            "package_game" => (
+                edit
+                    && self.game.doc.kind == rustudio_core::doc::DocKind::Place
+                    && self.game.doc.path.is_some()
+                    && self.package_job.is_none(),
+                None,
+            ),
             "save_roblox" | "save_roblox_as" | "publish" | "publish_as" => {
                 (edit && self.game.doc.kind == rustudio_core::doc::DocKind::Place, None)
             }
@@ -462,6 +469,7 @@ impl Editor {
             },
             "save" => self.save(),
             "save_as" => self.save_as(),
+            "package_game" => self.package_game(),
             "save_roblox" | "save_roblox_as" | "publish" | "publish_as" => {
                 use rustudio_account::VersionType;
                 let vt = match a {

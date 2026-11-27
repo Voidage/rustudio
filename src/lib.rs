@@ -31,6 +31,7 @@ pub mod macos;
 pub mod cloud_ui;
 pub mod join_ui;
 pub mod app;
+pub mod package;
 mod native_loop;
 pub use rustudio_player::{account, asset_report, emote_wheel, game, game_view, keys, offscreen, run_harness, player_app, play};
 pub mod frame_watchdog;

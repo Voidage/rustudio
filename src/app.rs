@@ -277,6 +277,8 @@ pub struct Editor {
     pub toolbox: crate::toolbox::Toolbox,
     /// The Asset Manager panel's state (src/asset_manager), kept while hidden.
     pub asset_manager: crate::asset_manager::AssetManager,
+    /// A running File > Package Game… job (src/package.rs).
+    pub package_job: Option<crate::package::Job>,
     /// The MicroProfiler window while its tab is open (recording runs while
     /// it exists; dropping it stops recording).
     pub profiler: Option<rustudio_profiler_ui::ProfilerWindow>,
@@ -485,6 +487,7 @@ impl RustudioApp {
             anim_editor: Default::default(),
             toolbox: Default::default(),
             asset_manager: Default::default(),
+            package_job: None,
             profiler: None,
             toolbox_vf: Default::default(),
             fly_held: 0.0,
@@ -1084,6 +1087,57 @@ impl Editor {
         }
     }
 
+    /// File > Package Game…: save a dirty local place, then cook and assemble
+    /// a playable folder off the UI thread (scripts/package-place.sh).
+    pub fn package_game(&mut self) {
+        if self.package_job.is_some() {
+            self.info("Package Game is already running");
+            return;
+        }
+        let Some(place) = self.game.doc.path.clone() else {
+            self.error("Package Game: save the place first; the cook reads the file");
+            return;
+        };
+        if self.game.doc.dirty() {
+            self.save_to(place.clone());
+        }
+        if self.game.doc.dirty() {
+            self.error("Package Game: the place could not be saved");
+            return;
+        }
+        let signed_in = self.game.account.shared_client().is_some();
+        match crate::package::start(&place, signed_in) {
+            Ok(job) => {
+                self.info(format!(
+                    "Packaging {} — cook + content pack, a few seconds",
+                    place.display()
+                ));
+                self.package_job = Some(job);
+            }
+            Err(e) => self.error(format!("Package Game: {e}")),
+        }
+    }
+
+    /// Drains File > Package Game… output into Output; called once a frame.
+    pub fn package_tick(&mut self, ctx: &egui::Context) {
+        let (lines, done) = match self.package_job.as_ref() {
+            Some(job) => crate::package::poll(job),
+            None => return,
+        };
+        for line in lines {
+            self.info(line);
+        }
+        if let Some(result) = done {
+            self.package_job = None;
+            match result {
+                Ok(launcher) => self.info(format!("Packaged game: run {}", launcher.display())),
+                Err(e) => self.error(format!("Package Game failed: {e}")),
+            }
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        }
+    }
+
     pub fn insert_from_file(&mut self) {
         use crate::file_dialog::{Kind, Purpose};
         let d = rfd::AsyncFileDialog::new().add_filter("Roblox model", &["rbxm", "rbxmx"]);
@@ -1657,6 +1711,7 @@ impl Editor {
             "ungroup" => self.ungroup(),
             "save" => self.save(),
             "save_as" => self.save_as(),
+            "package_game" => self.package_game(),
             "open" => self.request(PendingAction::Open(None)),
             "new" => self.request(PendingAction::New),
             "insert_object" => {
@@ -2460,6 +2515,7 @@ impl RustudioApp {
             ed.toolbox_tick(&ctx);
         }
         ed.asset_manager_tick(&ctx);
+        ed.package_tick(&ctx);
         if ed.builtin_tools.use_native(rustudio_core::rustudio_settings::BuiltinTool::Toolbox) {
             ed.toolbox_harness_tick();
         }

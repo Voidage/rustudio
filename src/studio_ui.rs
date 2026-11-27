@@ -215,6 +215,8 @@ pub const FILE: &[M] = &[
     I("Save to Roblox", "", "save_roblox"),
     I("Save to Roblox As", "", "save_roblox_as"),
     S,
+    I("Package Game…", "", "package_game"),
+    S,
     I("Publish", "Alt+P", "publish"),
     I("Publish As", "", "publish_as"),
     I("Manage Audience", "", "manage_audience"),
