@@ -5,6 +5,13 @@ The pack is the engine's defaults for a shipped game: the PlayerModule
 `rbxasset://` files. It lives in `game/content/` and is built into a
 versioned, hashed folder by `gamepack`.
 
+**For game developers: use bundled mode and ignore everything else.** The
+editor itself never asks you to manage a pack. For a release, run
+`gamepack build` once and ship the game folder with the pack inside it —
+no downloads and no network on first launch. The download mode described
+below is an optional distribution choice (one pack shared by many games);
+it changes nothing unless `game.json` explicitly says `"mode": "download"`.
+
 ## Layout
 
 ```text
@@ -115,6 +122,7 @@ game/target/release/rustudio-gamepack build game/content --out game/build/conten
 game/target/release/rustudio-gamepack verify game/build/content-pack
 game/target/release/rustudio-gamepack update game/build/content-pack     # bump patch
 game/target/release/rustudio-gamepack publish game/build/content-pack dist/packs
+game/target/release/rustudio-gamepack archive game/build/content-pack dist/packs/0.1.0.zip
 ```
 
 The pack root gets `content-pack.json`:
@@ -127,15 +135,22 @@ The pack root gets `content-pack.json`:
 `sha256` is over the sorted `path\0file-sha256\n` lines, so the build is
 deterministic. `build` refuses a non-empty output directory and a source
 without `ExtraContent/scripts/PlayerScripts`; `verify` exits 1 on a
-missing, changed or new file; `publish` copies to `<target>/<version>/`
-and never overwrites a published version.
+missing, changed or new file; `publish` copies to `<target>/<version>/`,
+also writes the single-file `<target>/<version>.zip`, and never overwrites
+a published version. `archive` writes that zip on its own.
+
+A game in **download mode** points `content.url` at the zip and copies
+`sha256` from `content-pack.json`; the launcher verifies and installs it
+under the game's per-user data directory, so later launches need no
+network. See `game/docs/BUNDLE.md` (`Content resolution`).
 
 ## Verification
 
 ```sh
-scripts/pack-smoke.sh          # R15: pack, warm once, offline, probe
-scripts/pack-smoke.sh --r6     # the same with the R6 place
+scripts/pack-smoke.sh            # R15: pack, warm once, offline, probe
+scripts/pack-smoke.sh --r6       # the same with the R6 place
 scripts/pack-smoke.sh --no-warm
+scripts/pack-download-smoke.sh   # download mode: install, reuse, bad hash
 ```
 
 The smoke builds the pack with gamepack, assembles a bundle around the

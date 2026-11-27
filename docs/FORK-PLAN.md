@@ -295,11 +295,16 @@ The pack can arrive in three ways; the manifest says which:
 
 1. **Bundled** (default for an offline release): `content/` ships in the
    bundle. This is the only mode that is fully offline on first launch.
-2. **Downloaded once**: the launcher fetches a versioned pack from
-   `content.url`, checks `content.sha256`, installs it under the game's
-   per-user data directory, and reuses it later. Smaller download; the first
-   launch needs network. Choose this when sharing one pack across many games
-   matters more than an offline first launch.
+2. **Downloaded once — done.** The launcher fetches a versioned pack from
+   `content.url` (the zip `gamepack publish`/`archive` writes), checks the
+   unpacked pack against `content.sha256`, installs it under
+   `<per-user data>/<game-id>/content-pack/<version>/`
+   (`RUSTUDIO_GAME_DATA_DIR` overrides the root) and reuses it later without
+   the archive. Smaller download; the first launch needs network. Choose
+   this when sharing one pack across many games matters more than an offline
+   first launch. Any failure (network, hash, version) logs and falls back to
+   engine content; the launch still happens, and `offline: true` forbids the
+   fetch.
 3. **Engine/local** (development only): reuse a content root already on the
    machine. Never required for a shipped game.
 
@@ -396,7 +401,9 @@ pack lifecycle:
 - `gamepack build <source-dir>` → a versioned pack folder.
 - `gamepack update` → bump the version, recompute `sha256`, write
   `content-pack.json`.
-- `gamepack publish <target>` → copy the pack to the download location.
+- `gamepack publish <target>` → copy the pack to the download location and
+  write the `<version>.zip` download mode fetches (`gamepack archive`
+  writes just the zip).
 
 The runtime only consumes a versioned, hashed pack; it does not care which
 tool built it. Later, the same actions can become Studio UI buttons
@@ -987,8 +994,10 @@ Run all of these after every sync and before every release.
 13. Content pack resolution: (a) bundled pack → used; (b) no pack → launches
     with the blocky fallback and logs what is missing; (c) download mode
     against a local test server → fetch, hash check, install, reuse, no
-    second fetch; (d) bad hash or incompatible engine → rejected, falls
-    back; (e) a newer pack version → used on the next launch.
+    second fetch (`scripts/pack-download-smoke.sh` covers install, reuse
+    with the archive removed, and bad-hash fallback through `file://`);
+    (d) bad hash or incompatible engine → rejected, falls back; (e) a newer
+    pack version → used on the next launch.
 14. `gamepack` build/update: deterministic output, version bump, hash
     written; the runtime accepts the built pack and rejects a tampered one.
 

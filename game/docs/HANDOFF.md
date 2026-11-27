@@ -53,16 +53,27 @@ Phase 2 so far:
   content links, caches or crash reports. An empty value opts back into the
   person's folders. Fork-only: upstream has no bundle use case, so no PR is
   planned.
+- **Content pack download mode — done.** `game.json` can say
+  `"content": {"mode":"download","url":...,"sha256":...,"version":...}`;
+  the launcher reuses an installed pack, else fetches the zip
+  `gamepack publish`/`archive` writes, verifies the pack hash and the
+  per-file contents, and installs it at
+  `<per-user data>/<game-id>/content-pack/<version>/`
+  (`RUSTUDIO_GAME_DATA_DIR` overrides). Later launches never touch the
+  archive. Network/hash/version failures and `offline: true` fall back to
+  engine content without blocking the launch. `file://` URLs work for
+  local testing. Bundled mode is unchanged and stays the default;
+  `scripts/pack-download-smoke.sh` proves install, reuse with the archive
+  removed, and bad-hash fallback.
 - **U3 (not Phase 2):** attachment selection, gizmos and property frames
   landed as a separate upstream-bound commit.
 
 Phase 2 remaining (suggested order):
 
-1. Content pack download mode: fetch, hash check, per-user install, reuse,
-   update (§7.1).
-2. Studio UI actions for Build/Update Content Pack (wraps `gamepack`).
-3. Offline service messages and the manifest's allow-network opt-in (§9).
-4. Packaging, signing/notarization as distribution requires.
+1. Studio UI actions for Build/Update/Publish Content Pack (wraps
+   `gamepack`, including the download-mode zip).
+2. Offline service messages and the manifest's allow-network opt-in (§9).
+3. Packaging, signing/notarization as distribution requires.
 
 Cache management is out of scope: the download cache is never pruned.
 

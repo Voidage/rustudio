@@ -10,6 +10,11 @@ license.workspace = true
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Download mode (§7.1): the launcher fetches and verifies a pack itself.
+dirs = "6"
+sha2 = "0.10"
+ureq = "3"
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [target.'cfg(windows)'.dependencies]
 # The native error box: a windowless build has no console to print to.

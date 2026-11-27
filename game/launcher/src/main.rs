@@ -24,6 +24,8 @@ use std::{
 
 use serde::Deserialize;
 
+mod pack;
+
 /// The manifest format this launcher understands.
 const MANIFEST_VERSION: u32 = 1;
 /// The player binary inside the bundle (FORK-PLAN §4).
@@ -76,14 +78,13 @@ enum ContentSpec {
         mode: String,
         #[serde(default)]
         path: Option<String>,
+        /// Download mode: where the pack archive lives (§7.1).
         #[serde(default)]
-        #[allow(dead_code)] // download mode: F2/F3-era work (§7.1)
         url: Option<String>,
+        /// Download mode: the pack hash `gamepack` wrote.
         #[serde(default)]
-        #[allow(dead_code)]
         sha256: Option<String>,
         #[serde(default)]
-        #[allow(dead_code)]
         version: Option<String>,
     },
 }
@@ -111,6 +112,11 @@ enum Content {
         /// `<bundle>/<path>`: the pack root. It has the Studio layout
         /// (`content/` and/or `ExtraContent/scripts/PlayerScripts`); the
         /// engine validates each half (F3).
+        root: PathBuf,
+    },
+    /// A pack fetched and installed under the per-user data directory.
+    Downloaded {
+        /// The installed version's pack root (same layout as bundled).
         root: PathBuf,
     },
 }
@@ -208,7 +214,14 @@ fn launch(started: Instant) -> Result<i32, String> {
         None => return Err("game.json: manifest_version is required".into()),
     }
 
-    let plan = resolve(&manifest, &root, &|p| p.is_dir())?;
+    // Download mode (§7.1): the per-user data directory keeps a pack that
+    // can be reused, and the offline promise forbids fetching it.
+    let allow_network = manifest.offline != Some(true);
+    let download = |spec: &pack::DownloadSpec| {
+        let base = pack::data_root()?;
+        pack::ensure(&base, &manifest.id, spec, allow_network, &pack::fetch)
+    };
+    let plan = resolve(&manifest, &root, &|p| p.is_dir(), &download)?;
     if !plan.bundle.entry.is_file() {
         return Err(format!("entry place not found: {}", plan.bundle.entry.display()));
     }
@@ -278,9 +291,15 @@ fn engine_binary(root: &Path) -> PathBuf {
     root.join(name)
 }
 
-/// Resolves the manifest against the bundle root. `is_dir` is injectable so
-/// the rules can be tested without a real tree (and so Windows paths work).
-fn resolve(manifest: &Manifest, root: &Path, is_dir: &dyn Fn(&Path) -> bool) -> Result<Plan, String> {
+/// Resolves the manifest against the bundle root. `is_dir` and `download`
+/// are injectable so the rules can be tested without a real tree, a network
+/// or the per-user data directory (and so Windows paths work).
+fn resolve(
+    manifest: &Manifest,
+    root: &Path,
+    is_dir: &dyn Fn(&Path) -> bool,
+    download: &dyn Fn(&pack::DownloadSpec) -> Result<pack::Installed, String>,
+) -> Result<Plan, String> {
     let entry = relative_to(root, &manifest.entry, "entry")?;
     let engine = engine_binary(root);
     if !is_dir(&root.join("engine")) {
@@ -305,6 +324,43 @@ fn resolve(manifest: &Manifest, root: &Path, is_dir: &dyn Fn(&Path) -> bool) -> 
     let content = match &manifest.content {
         None => Content::None,
         Some(ContentSpec::Mode(mode)) => resolve_content_mode(mode, "content", root, is_dir, &mut notes)?,
+        Some(ContentSpec::Spec { mode, path, url, sha256, version }) if mode == "download" => {
+            match (url, sha256) {
+                (Some(url), Some(sha256)) => {
+                    let spec = pack::DownloadSpec {
+                        url: url.clone(),
+                        sha256: sha256.to_ascii_lowercase(),
+                        version: version.clone(),
+                    };
+                    match download(&spec) {
+                        Ok(installed) => {
+                            notes.push(format!(
+                                "content: {} pack {} at {}",
+                                if installed.reused { "reusing installed" } else { "installed" },
+                                installed.version,
+                                installed.root.display()
+                            ));
+                            Content::Downloaded { root: installed.root }
+                        }
+                        Err(e) => {
+                            notes.push(format!(
+                                "content: download pack unavailable ({e}); \
+                                 launching with engine content/fallback"
+                            ));
+                            Content::None
+                        }
+                    }
+                }
+                _ => {
+                    notes.push(
+                        "content: download mode needs url and sha256; \
+                         launching with engine content/fallback"
+                            .into(),
+                    );
+                    Content::None
+                }
+            }
+        }
         Some(ContentSpec::Spec { mode, path, .. }) => {
             resolve_content_mode(mode, path.as_deref().unwrap_or("content"), root, is_dir, &mut notes)?
         }
@@ -334,8 +390,8 @@ fn resolve_content_mode(
         }
         "download" => {
             notes.push(
-                "content: download mode is not implemented yet; \
-                 falling back to the engine's own content (F2/F3 work)"
+                "content: download mode needs an object with url and sha256; \
+                 launching with engine content/fallback"
                     .into(),
             );
             Ok(Content::None)
@@ -430,8 +486,11 @@ fn env_contract(bundle: &Bundle) -> Vec<(&'static str, OsString)> {
     if let Some(assets) = &bundle.assets {
         vars.push(("RUSTUDIO_LOCAL_ASSETS", assets.clone().into_os_string()));
     }
-    if let Content::Bundled { root } = &bundle.content {
-        vars.push(("RUSTUDIO_ENGINE_CONTENT_DIR", root.clone().into_os_string()));
+    match &bundle.content {
+        Content::Bundled { root } | Content::Downloaded { root } => {
+            vars.push(("RUSTUDIO_ENGINE_CONTENT_DIR", root.clone().into_os_string()));
+        }
+        Content::None | Content::Engine => {}
     }
     vars
 }
@@ -544,7 +603,7 @@ mod tests {
         let mut notes = Vec::new();
         let download = resolve_content_mode("download", "content", root, &|_| true, &mut notes).unwrap();
         assert_eq!(download, Content::None);
-        assert!(notes.iter().any(|n| n.contains("not implemented")));
+        assert!(notes.iter().any(|n| n.contains("needs an object with url and sha256")));
     }
 
     #[test]
@@ -576,13 +635,18 @@ mod tests {
         let root = Path::new("/games/mygame");
         let mut m = example();
         m.assets = Some("assets".into());
-        let plan = resolve(&m, root, &|p| {
-            p == Path::new("/games/mygame/engine")
-                || p == Path::new("/games/mygame/assets")
-                || p == Path::new("/games/mygame/content")
-                || p == Path::new("/games/mygame/content/content")
-                || p == Path::new("/games/mygame/content/ExtraContent/scripts/PlayerScripts")
-        })
+        let plan = resolve(
+            &m,
+            root,
+            &|p| {
+                p == Path::new("/games/mygame/engine")
+                    || p == Path::new("/games/mygame/assets")
+                    || p == Path::new("/games/mygame/content")
+                    || p == Path::new("/games/mygame/content/content")
+                    || p == Path::new("/games/mygame/content/ExtraContent/scripts/PlayerScripts")
+            },
+            &|_| unreachable!("the example manifest is bundled"),
+        )
         .unwrap();
         assert_eq!(plan.bundle.entry, root.join("place/game.rbxlx"));
         assert_eq!(plan.bundle.engine, root.join(if cfg!(windows) { "engine/rustudio-player.exe" } else { "engine/rustudio-player" }));
@@ -591,6 +655,88 @@ mod tests {
         assert_eq!(plan.bundle.datastores, root.join("datastores"));
         assert_eq!(plan.bundle.home, root.join("home"));
         assert_eq!(plan.bundle.window_title, "My Game");
+    }
+
+    fn download_manifest() -> Manifest {
+        manifest(
+            r#"{
+              "manifest_version": 1,
+              "id": "mygame",
+              "name": "My Game",
+              "entry": "game.rbxlx",
+              "content": {
+                "mode": "download",
+                "url": "https://example.test/pack-1.0.0.zip",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "version": "1.0.0"
+              }
+            }"#,
+        )
+    }
+
+    fn engine_dir(p: &Path) -> bool {
+        p == Path::new("/games/mygame/engine")
+    }
+
+    #[test]
+    fn download_mode_resolves_to_the_installed_pack() {
+        let m = download_manifest();
+        let seen = std::cell::RefCell::new(None);
+        let download = |spec: &pack::DownloadSpec| {
+            *seen.borrow_mut() = Some(spec.clone());
+            Ok(pack::Installed {
+                root: PathBuf::from("/data/mygame/content-pack/1.0.0"),
+                version: "1.0.0".into(),
+                reused: false,
+            })
+        };
+        let plan = resolve(&m, Path::new("/games/mygame"), &engine_dir, &download).unwrap();
+        assert_eq!(
+            plan.bundle.content,
+            Content::Downloaded { root: PathBuf::from("/data/mygame/content-pack/1.0.0") }
+        );
+        let spec = seen.borrow();
+        let spec = spec.as_ref().unwrap();
+        assert_eq!(spec.url, "https://example.test/pack-1.0.0.zip");
+        assert_eq!(spec.version.as_deref(), Some("1.0.0"));
+        assert!(plan.notes.iter().any(|n| n.contains("installed pack 1.0.0")));
+    }
+
+    #[test]
+    fn download_mode_reuses_an_installed_pack_without_errors() {
+        let m = download_manifest();
+        let download = |_: &pack::DownloadSpec| {
+            Ok(pack::Installed {
+                root: PathBuf::from("/data/mygame/content-pack/1.0.0"),
+                version: "1.0.0".into(),
+                reused: true,
+            })
+        };
+        let plan = resolve(&m, Path::new("/games/mygame"), &engine_dir, &download).unwrap();
+        assert!(plan.notes.iter().any(|n| n.contains("reusing installed pack 1.0.0")));
+    }
+
+    #[test]
+    fn a_failed_download_does_not_block_the_launch() {
+        let m = download_manifest();
+        let download = |_: &pack::DownloadSpec| Err("GET failed: no network".into());
+        let plan = resolve(&m, Path::new("/games/mygame"), &engine_dir, &download).unwrap();
+        assert_eq!(plan.bundle.content, Content::None);
+        assert!(plan
+            .notes
+            .iter()
+            .any(|n| n.contains("download pack unavailable (GET failed: no network)")));
+    }
+
+    #[test]
+    fn download_mode_without_url_or_hash_falls_back() {
+        let m = manifest(
+            r#"{"manifest_version":1,"id":"x","name":"X","entry":"game.rbxlx",
+                "content":{"mode":"download"}}"#,
+        );
+        let plan = resolve(&m, Path::new("/games/mygame"), &engine_dir, &|_| unreachable!()).unwrap();
+        assert_eq!(plan.bundle.content, Content::None);
+        assert!(plan.notes.iter().any(|n| n.contains("needs url and sha256")));
     }
 
     #[test]

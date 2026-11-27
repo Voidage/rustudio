@@ -45,7 +45,10 @@ usage: gamepack COMMAND
   verify <PACK>
         recompute the hashes and report differences (exit 1 on a mismatch)
   publish <PACK> <TARGET>
-        copy PACK to TARGET/<version>/ after verifying it";
+        copy PACK to TARGET/<version>/ after verifying it, and write the
+        single-file TARGET/<version>.zip the launcher's download mode fetches
+  archive <PACK> <OUT.zip>
+        write the verified pack as one zip (the download-mode artifact)";
 
 fn main() {
     match run(std::env::args().skip(1).collect()) {
@@ -92,6 +95,12 @@ fn run(args: Vec<String>) -> Result<i32, String> {
             let pack = it.next().ok_or("publish needs a PACK directory")?;
             let target = it.next().ok_or("publish needs a TARGET directory")?;
             publish(Path::new(&pack), Path::new(&target))?;
+            Ok(0)
+        }
+        "archive" => {
+            let pack = it.next().ok_or("archive needs a PACK directory")?;
+            let out = it.next().ok_or("archive needs an OUT.zip path")?;
+            archive(Path::new(&pack), Path::new(&out))?;
             Ok(0)
         }
         other => Err(format!("unknown command {other}")),
@@ -219,8 +228,12 @@ fn publish(pack: &Path, target: &Path) -> Result<(), String> {
     }
     let manifest = read_manifest(pack)?;
     let dest = target.join(&manifest.version);
+    let zip = target.join(format!("{}.zip", manifest.version));
     if dest.exists() {
         return Err(format!("{} already exists", dest.display()));
+    }
+    if zip.exists() {
+        return Err(format!("{} already exists", zip.display()));
     }
     fs::create_dir_all(&dest).map_err(|e| format!("{}: {e}", dest.display()))?;
     let files = collect(pack)?;
@@ -234,7 +247,49 @@ fn publish(pack: &Path, target: &Path) -> Result<(), String> {
     }
     fs::copy(pack.join(MANIFEST), dest.join(MANIFEST))
         .map_err(|e| format!("{}: {e}", dest.display()))?;
-    println!("gamepack: published {} to {}", manifest.version, dest.display());
+    write_archive(pack, &zip)?;
+    println!(
+        "gamepack: published {} to {} and {}",
+        manifest.version,
+        dest.display(),
+        zip.display()
+    );
+    Ok(())
+}
+
+fn archive(pack: &Path, out: &Path) -> Result<(), String> {
+    let problems = verify(pack)?;
+    if !problems.is_empty() {
+        return Err(format!("{} does not verify ({} problem(s)); not archiving", pack.display(), problems.len()));
+    }
+    write_archive(pack, out)
+}
+
+/// One zip whose root is the pack: every file plus `content-pack.json`.
+/// This is what the launcher's download mode fetches.
+fn write_archive(pack: &Path, out: &Path) -> Result<(), String> {
+    if out.exists() {
+        return Err(format!("{} already exists", out.display()));
+    }
+    if let Some(dir) = out.parent().filter(|d| !d.as_os_str().is_empty()) {
+        fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    let file = fs::File::create(out).map_err(|e| format!("{}: {e}", out.display()))?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    let mut names: Vec<String> = collect(pack)?.into_keys().collect();
+    names.push(MANIFEST.to_string());
+    names.sort();
+    for rel in &names {
+        zip.start_file(rel, options)
+            .map_err(|e| format!("{}: {e}", out.display()))?;
+        let path = pack.join(rel);
+        let mut from = fs::File::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        std::io::copy(&mut from, &mut zip).map_err(|e| format!("{}: {e}", out.display()))?;
+    }
+    zip.finish().map_err(|e| format!("{}: {e}", out.display()))?;
+    println!("gamepack: archived {} file(s) to {}", names.len(), out.display());
     Ok(())
 }
 
@@ -380,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn publish_copies_the_versioned_pack() {
+    fn publish_copies_the_versioned_pack_and_its_archive() {
         let root = temp("publish");
         let src = source(&root);
         let out = root.join("out");
@@ -389,7 +444,27 @@ mod tests {
         publish(&out, &target).unwrap();
         assert!(target.join("0.4.2").join(PLAYER_SCRIPTS).join("PlayerScriptsLoader.lua").is_file());
         assert!(target.join("0.4.2").join(MANIFEST).is_file());
+        let zip_path = target.join("0.4.2.zip");
+        let mut zip = zip::ZipArchive::new(fs::File::open(&zip_path).unwrap()).unwrap();
+        assert!(zip.by_name(MANIFEST).is_ok(), "the archive carries the pack manifest");
+        assert!(zip.by_name(&format!("{PLAYER_SCRIPTS}/PlayerScriptsLoader.lua")).is_ok());
         assert!(publish(&out, &target).is_err(), "a published version is immutable");
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn archive_writes_the_same_files_as_the_folder() {
+        let root = temp("archive");
+        let src = source(&root);
+        let out = root.join("out");
+        build(&src, &out, "0.5.0").unwrap();
+        let zip_path = root.join("pack-0.5.0.zip");
+        archive(&out, &zip_path).unwrap();
+        let mut zip = zip::ZipArchive::new(fs::File::open(&zip_path).unwrap()).unwrap();
+        let mut names: Vec<String> = (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().map(|n| n.to_string()).unwrap_or_default()).collect();
+        names.sort();
+        assert_eq!(names, [format!("{PLAYER_SCRIPTS}/PlayerScriptsLoader.lua"), MANIFEST.into(), "content/avatar/note.txt".into()]);
+        assert!(archive(&out, &zip_path).is_err(), "never overwrite an archive");
         fs::remove_dir_all(&root).unwrap();
     }
 

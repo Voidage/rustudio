@@ -82,8 +82,27 @@ manifest's. That is the debugging escape hatch:
    for `rbxasset://` and its `ExtraContent/scripts/PlayerScripts` for the
    default player scripts, validating each half on its own: a pack with only
    one half still works for that half.
-2. `download`: not implemented yet. The launcher logs the fallback and starts
-   without a pack.
+2. `download`: the launcher fetches `url` once, checks the unpacked pack
+   against `sha256`, and installs it at
+   `<per-user data>/<game-id>/content-pack/<version>/`; later launches reuse
+   it without the archive. `RUSTUDIO_GAME_DATA_DIR` overrides the per-user
+   root (default: the platform data directory, e.g.
+   `~/.local/share/rustudio-games` on Linux). The archive is the zip
+   `gamepack publish`/`archive` writes; its root is the pack. `offline: true`
+   forbids the fetch. A missing archive, bad hash, version mismatch or
+   network failure logs the reason and falls back to the engine content:
+   never a failed launch.
+
+   ```json
+   "content": {
+     "mode": "download",
+     "url": "https://example.com/packs/0.1.0.zip",
+     "sha256": "1d93adc0…",
+     "version": "0.1.0"
+   }
+   ```
+
+   `url` may be `file://` for a mounted folder or a local test.
 3. `engine`: leaves `RUSTUDIO_ENGINE_CONTENT_DIR` unset so the engine's own
    lookup decides (development only).
 4. No pack or a missing/invalid one: the game still launches with the
