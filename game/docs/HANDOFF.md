@@ -110,8 +110,8 @@ Not started (Phase 1 remaining):
 - Base: **`ade1ff5`** — upstream `main` after PR #46 merged, `Cargo.toml`
   0.6.0.
 - `game` branch (local only, not pushed) is a linear stack on top of it:
-  the Phase 0/cook F0 commits, F2, F7, and the Phase 1 docs/handoff
-  commits. U1 is gone (merged upstream).
+  the Phase 0/cook/content-pack F0 commits, F2, F4, F7, and the Phase 1
+  docs/handoff commits. U1 is gone (merged upstream).
 - Tags: `pre-sync-20261126` (before the 0.6.0 sync) and
   `pre-sync-20261126b` (before the U1-merge sync).
 - `../upstream-u1` / `u1-autoplay-sounds` is merged PR #46 (can be
