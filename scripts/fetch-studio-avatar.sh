@@ -1,18 +1,23 @@
 #!/usr/bin/env bash
-# Copies Studio's default R6/R15 bodies and Animate scripts into the content
-# pack: game/content/content/avatar/. The engine reads them from a Studio
-# layout (RUSTUDIO_STUDIO_DIR, then Vinegar's newest Studio version).
+# Copies the Studio content the engine reads at run time into the content
+# pack (game/content): the R6/R15 bodies and Animate scripts, the legacy
+# surface/sky/water textures and terrain materials (PlatformContent), fonts,
+# cursors and character sounds, plus RbxCharacterSounds.
 #
 #   scripts/fetch-studio-avatar.sh [STUDIO_DIR]
 #
+# The Studio root is found from the argument, RUSTUDIO_STUDIO_DIR, Vinegar's
+# newest version, or the copy rustudio downloaded from Roblox.
+#
 # These files are Roblox's and are NOT committed (.gitignore): they are copied
 # from the developer's own Studio install for local/personal builds. For a
-# public release, replace them with your own rigs and Animate script or
-# confirm the asset terms first.
+# public release, replace them with your own assets or confirm the asset terms
+# first.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEST="$ROOT/game/content/content/avatar"
+PACK="$ROOT/game/content"
+AVATAR="$PACK/content/avatar"
 FILES=(
     "character.rbxm"
     "characterR15DynamicHeadV2.rbxm"
@@ -21,35 +26,68 @@ FILES=(
     "scripts/humanoidAnimatePlayEmote.rbxm"
     "scripts/humanoidHealthRegenScript.rbxmx"
 )
+# Directories the engine reads at Play: legacy surfaces (studs), sky, water,
+# terrain, fonts, cursors/particles and the character sounds.
+DIRS=(
+    "PlatformContent/pc/textures"
+    "PlatformContent/pc/terrain"
+    "PlatformContent/pc/fonts"
+    "content/textures"
+    "content/sky"
+    "content/fonts"
+    "content/sounds"
+    "ExtraContent/scripts/PlayerScripts/StarterPlayerScriptsCommon"
+)
+
+is_root() {
+    [[ -f "$1/content/avatar/character.rbxm" && -d "$1/PlatformContent/pc/textures" ]]
+}
 
 find_studio() {
-    if [[ -n "${1:-}" && -f "$1/content/avatar/character.rbxm" ]]; then
+    if [[ -n "${1:-}" ]] && is_root "$1"; then
         echo "$1"
         return
     fi
-    if [[ -n "${RUSTUDIO_STUDIO_DIR:-}" && -f "${RUSTUDIO_STUDIO_DIR}/content/avatar/character.rbxm" ]]; then
+    if [[ -n "${RUSTUDIO_STUDIO_DIR:-}" ]] && is_root "${RUSTUDIO_STUDIO_DIR}"; then
         echo "${RUSTUDIO_STUDIO_DIR}"
         return
     fi
     local versions="${HOME}/.var/app/org.vinegarhq.Vinegar/data/vinegar/versions"
     if [[ -d "$versions" ]]; then
         while IFS= read -r dir; do
-            if [[ -f "$dir/content/avatar/character.rbxm" ]]; then
+            if is_root "$dir"; then
                 echo "$dir"
                 return
             fi
         done < <(find "$versions" -mindepth 1 -maxdepth 1 -type d | sort -r)
     fi
+    local downloaded="${HOME}/.local/share/rustudio/studio"
+    if is_root "$downloaded"; then
+        echo "$downloaded"
+        return
+    fi
     return 1
 }
 
 STUDIO="$(find_studio "${1:-}")" || {
-    echo "no Studio content/avatar found: pass a Studio dir, set RUSTUDIO_STUDIO_DIR," >&2
-    echo "or install Studio (Vinegar). The pack then falls back to blocky bodies." >&2
+    echo "no Studio content found: pass a Studio dir, set RUSTUDIO_STUDIO_DIR," >&2
+    echo "install Studio (Vinegar), or run 'rustudio --install-studio-content'." >&2
     exit 1
 }
-mkdir -p "$DEST/scripts"
+
+mkdir -p "$AVATAR/scripts"
 for file in "${FILES[@]}"; do
-    cp "$STUDIO/content/avatar/$file" "$DEST/$file"
+    cp "$STUDIO/content/avatar/$file" "$AVATAR/$file"
 done
-echo "copied ${#FILES[@]} avatar files from $STUDIO to $DEST"
+
+for dir in "${DIRS[@]}"; do
+    if [[ ! -d "$STUDIO/$dir" ]]; then
+        echo "missing in Studio: $dir" >&2
+        exit 1
+    fi
+    rm -rf "$PACK/$dir"
+    mkdir -p "$(dirname "$PACK/$dir")"
+    cp -R "$STUDIO/$dir" "$PACK/$dir"
+done
+
+echo "copied ${#FILES[@]} avatar files and ${#DIRS[@]} content folders from $STUDIO to $PACK"

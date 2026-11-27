@@ -860,18 +860,24 @@ fn run_capture(player: &Path, place: &Path, options: &Options) -> Result<Capture
         // The capture's ledger is evidence for the cook, not a bundle asset.
         .env("RUSTUDIO_CAPTURE_LEDGER", options.out.join("logs").join("cook-capture-ledger.jsonl"))
         .env("RUSTUDIO_NO_STUDIO_FETCH", "1")
+        // Capture as a shipped game runs: no saved avatar/session, so the
+        // pack's local R15 body, head and Animate clips are what gets cached.
+        // `--signed-in` still covers scanned private assets in the fetch step.
+        .env("RUSTUDIO_NO_SESSION", "1")
         .env("RUSTUDIO_CORE_SCRIPTS", "0")
         .env("RUSTUDIO_LIVE_DATA", "0")
         .env_remove("RUSTUDIO_LOCAL_ASSETS")
         .stdout(Stdio::null())
         .stderr(Stdio::inherit());
     if let Some(content) = &options.content {
-        cmd.env("RUSTUDIO_CONTENT_DIR", content);
-        // A pack root that validates as a Studio root, as the launcher sets it.
-        if let Some(root) = content.parent() {
-            if root.join("ExtraContent/scripts/PlayerScripts").is_dir() {
-                cmd.env("RUSTUDIO_STUDIO_DIR", root);
-            }
+        // `--content` names the pack root (content/ + ExtraContent/, as the
+        // launcher's RUSTUDIO_ENGINE_CONTENT_DIR); a bare Studio content/
+        // folder still works. Using the pack here makes the capture request
+        // the same avatar and Animate assets the shipped game will read.
+        if content.join("content").is_dir() || content.join("ExtraContent").is_dir() {
+            cmd.env("RUSTUDIO_ENGINE_CONTENT_DIR", content);
+        } else {
+            cmd.env("RUSTUDIO_CONTENT_DIR", content);
         }
     }
     println!("cook: capture: {} --headless --seconds {}", player.display(), options.seconds);

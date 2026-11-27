@@ -36,6 +36,25 @@ The engine reads these names exactly (`crates/rustudio-core/src/default_scripts.
 `crates/rustudio-engine/src/rig.rs`). `RUSTUDIO_STUDIO_DIR` is the pack
 root; `RUSTUDIO_CONTENT_DIR` is its `content/`.
 
+A shipped game has no Studio install to fall back on, so the pack also
+carries the files the engine reads at Play time:
+
+```text
+PlatformContent/pc/textures/   legacy surfaces (studs), sky, water, brdfLUT
+PlatformContent/pc/terrain/    terrain materials and textures
+PlatformContent/pc/fonts/      Noto CJK fallbacks
+content/textures/ content/sky/ content/fonts/ content/sounds/
+ExtraContent/scripts/PlayerScripts/StarterPlayerScriptsCommon/  RbxCharacterSounds
+```
+
+`scripts/fetch-studio-avatar.sh` copies all of it from the developer's
+Studio install into `game/content` (git-ignored, Roblox content). Without
+it the packaged game still runs, but parts draw with no studs, the sky and
+some fonts are missing, and the R15 head's cloud mesh/face texture is not
+in the cooked cache. The cook captures with no saved session, as a
+shipped game runs, so the local body, head and Animate clips land in
+`cache/assets`.
+
 ## The avatar and Animate files
 
 These are Roblox's default bodies and Animate scripts, copied from the

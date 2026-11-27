@@ -19,5 +19,11 @@ tools/fidelity/truss/tests.log
 checks/**/dosdevices/
 checks/**/waxley-data/
 
-# Studio avatar models copied by scripts/fetch-studio-avatar.sh (Roblox content, not committed)
+# Studio content copied by scripts/fetch-studio-avatar.sh (Roblox content, not committed)
 game/content/content/avatar/
+game/content/content/fonts/
+game/content/content/sky/
+game/content/content/sounds/
+game/content/content/textures/
+game/content/PlatformContent/
+game/content/ExtraContent/scripts/PlayerScripts/StarterPlayerScriptsCommon/

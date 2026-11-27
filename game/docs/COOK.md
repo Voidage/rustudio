@@ -20,6 +20,13 @@ game/target/release/rustudio-cook \
     --seconds 8
 ```
 
+`--content` is the pack root (`content/` + `ExtraContent/`, as the
+launcher's `RUSTUDIO_ENGINE_CONTENT_DIR`); a bare Studio `content/` folder
+still works. The playthrough runs **without a saved session**, as a shipped
+game does, so the pack's local R15 body, head and Animate clips are what
+land in `cache/assets`; `--signed-in` only affects the fetch step for
+scanned private assets.
+
 `--player` defaults to `$RUSTUDIO_PLAYER`, else `target/{release,debug}/rustudio-player`
 in the current directory or one of its ancestors. Build the player first
 (`cargo build --release -p rustudio-player`). `--no-capture` skips the
