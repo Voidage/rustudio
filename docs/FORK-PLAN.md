@@ -725,6 +725,7 @@ teleports. Every patch is listed here and in `git log`.
 | F5 | `crates/rustudio-engine/src/domains/data_local.rs`, new module | File-backed local DataStores | 150–300 lines | Maybe | 2 |
 | F6 | `crates/rustudio-player/src/play_teleport.rs` | Local multi-place teleports | larger | No | 3 |
 | F7 | `crates/rustudio-engine/src/library.luau` (plus `anim_tracks.rs` / `anim_replicate.rs` only if needed) | Direct KeyframeSequence / AnimationClip loading, no upload or asset id; stable clip ids for replication | 20–80 lines | Maybe (upstream targets API parity; likely fork-only) | 1 (load), 2 (replication) |
+| U2 | `vendor/egui_dock`, `src/layout_store.rs` | A dock leaf whose active tab index is past the end draws no tab body (a blank 3D viewport); clamp on tab removal and on layout load | ~25 lines | Yes | done (upstream bug; PR not sent) |
 
 The content pack manager (`gamepack`) and first-launch resolution are
 downstream code. F3 only gives the engine a clean content root.
@@ -978,7 +979,7 @@ Update this table on every sync.
 | 2026-11-26 | `3f1ada8` (main; `Cargo.toml` 0.5.2) | plan | — | Initial plan |
 | 2026-11-26 | `3f1ada8` (main; `Cargo.toml` 0.5.2) | Phase 0 | F0, U1 | Phase 0 spike on Linux; U1 is upstream PR #46 |
 | 2026-11-26 | `7c2ce14` (main; `Cargo.toml` 0.6.0) | Phase 1 | F0, U1 | Synced 0.5.2 → 0.6.0 (Animation Editor); rebase + range-diff identical; workspace tests and Phase 0 smoke pass. U1 still open as PR #46. |
-| 2026-11-26 | `ade1ff5` (main; `Cargo.toml` 0.6.0) | Phase 1 | F0, F2, F4, F7 | U1 (PR #46) merged upstream; local U1 dropped by rebase. F2 PR #47 open upstream. F4 ledger + `rustudio-cook export` done. Rebased; gate rerun. |
+| 2026-11-26 | `ade1ff5` (main; `Cargo.toml` 0.6.0) | Phase 1 | F0, F2, F4, F7, U2 | U1 (PR #46) merged upstream; local U1 dropped by rebase. F2 PR #47 open upstream. F4 ledger + `rustudio-cook export` done. U2 (stale dock tab blanks the viewport) found and fixed. Rebased; gate rerun. |
 
 ---
 
