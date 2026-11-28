@@ -59,7 +59,7 @@ fn lacking(doc: &rustudio_core::doc::Document, live: &LiveView) -> Vec<String> {
     for id in ids {
         let Some(r) = live.model.reference(id) else { continue };
         let Some(inst) = doc.dom.get_by_ref(r) else { continue };
-        if !matches!(inst.class.as_str(), "Script" | "LocalScript" | "ModuleScript") {
+        if !matches!(inst.class.as_str(), "Script" | "LocalScript" | "ModuleScript" | "CoreScript") {
             continue;
         }
         let note = if live.script_commits.values().any(|(script, _, _)| *script == id) {

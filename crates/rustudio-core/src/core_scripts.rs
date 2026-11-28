@@ -99,6 +99,189 @@ pub fn patch_path() -> Option<PathBuf> {
         .filter(|p| p.is_file())
 }
 
+/// The Lua source Studio ships for CoreScript `name` (under
+/// ExtraContent/scripts/CoreScripts), when this install has it. The engine
+/// runs the patch's compiled bytecode; this source is what the script editor
+/// shows for a live CoreScript and what a developer can copy into a place.
+pub fn source_for(name: &str) -> Option<String> {
+    let patch = patch_path()?;
+    let root = patch.parent()?.parent()?.parent()?.join("scripts/CoreScripts");
+    let short = name.rsplit('/').next().unwrap_or(name);
+    let mut candidates = Vec::new();
+    for n in [name, short] {
+        candidates.push(root.join(format!("{n}.lua")));
+        candidates.push(root.join("CoreScripts").join(format!("{n}.lua")));
+        candidates.push(root.join("Modules").join(format!("{n}.lua")));
+        candidates.push(root.join("ServerCoreScripts").join(format!("{n}.lua")));
+    }
+    candidates.into_iter().find_map(|p| std::fs::read_to_string(p).ok())
+}
+
+/// The Lua source Studio ships for the module at `path` under
+/// `CoreGui.RobloxGui.Modules` (the segments are instance names, so a name
+/// with a dot stays one segment).
+pub fn module_source(path: &[String]) -> Option<String> {
+    let patch = patch_path()?;
+    let mut p = patch.parent()?.parent()?.parent()?.join("scripts/CoreScripts/Modules");
+    for seg in path {
+        p.push(seg);
+    }
+    let mut direct = p.clone().into_os_string();
+    direct.push(".lua");
+    [PathBuf::from(direct), p.join("init.lua")]
+        .into_iter()
+        .find_map(|p| std::fs::read_to_string(p).ok())
+}
+
+/// The Lua source for a live instance by its full name (what the Explorer
+/// and script editor show): a CoreScript under `RobloxGui.CoreScripts` or a
+/// module under `RobloxGui.Modules` (BackpackScript, PlayerList/…), or an
+/// entry of the place's own `CoreScripts` service.
+pub fn source_for_instance(full_name: &str) -> Option<String> {
+    // A script the developer copied into the place's CoreScripts service:
+    // `CoreScripts.<entry>` (the entry name keeps Roblox's `CoreScripts/…`).
+    if let Some(rest) = full_name.strip_prefix("CoreScripts.Modules.") {
+        let path: Vec<String> = rest.split('.').map(str::to_string).collect();
+        return module_source(&path);
+    }
+    if let Some(rest) = full_name.strip_prefix("CoreScripts.") {
+        return source_for(rest);
+    }
+    let patch = patch_path()?;
+    let root = patch.parent()?.parent()?.parent()?.join("scripts/CoreScripts");
+    let rel = full_name.strip_prefix("CoreGui.RobloxGui.")?;
+    let mut candidates = Vec::new();
+    if let Some(rest) = rel.strip_prefix("Modules.") {
+        let path = rest.replace('.', "/");
+        let modules = root.join("Modules");
+        candidates.push(modules.join(format!("{path}.lua")));
+        candidates.push(modules.join(&path).join("init.lua"));
+        // A module whose name itself contains a dot: try the last segment as
+        // part of the file name too.
+        if let Some((dir, file)) = path.rsplit_once('/') {
+            candidates.push(modules.join(dir).join(format!("{file}.lua")));
+        }
+    } else if let Some(rest) = rel
+        .strip_prefix("CoreScripts.")
+        .or_else(|| rel.strip_prefix("CoreScripts/"))
+    {
+        candidates.push(root.join("CoreScripts").join(format!("{rest}.lua")));
+        candidates.push(root.join("CoreScripts").join(format!("{}.lua", rest.rsplit(['.', '/']).next().unwrap_or(rest))));
+    } else {
+        candidates.push(root.join(format!("{}.lua", rel.replace('.', "/"))));
+    }
+    candidates.into_iter().find_map(|p| std::fs::read_to_string(p).ok())
+}
+
+/// One top-level CoreScript the browser lists: its patch name (Roblox's own,
+/// e.g. `CoreScripts/ExperienceChatMain` or `StarterScript`) and the Lua
+/// Studio ships for it. `None` when this install has no source file.
+#[derive(Debug, Clone)]
+pub struct CatalogScript {
+    pub name: String,
+    /// The name without Roblox's `CoreScripts/` path prefix, for display.
+    pub short: String,
+    pub source: Option<String>,
+}
+
+/// One node under `CoreGui.RobloxGui.Modules`: a module, a Folder, or
+/// whatever else the patch keeps there.
+#[derive(Debug, Clone)]
+pub struct CatalogModule {
+    pub name: String,
+    /// Instance names from `Modules` down to this node.
+    pub path: Vec<String>,
+    pub class: String,
+    pub children: Vec<CatalogModule>,
+}
+
+/// What Studio's data model patch holds for the CoreScripts browser: the
+/// scripts the engine starts and the CoreGui module tree. Reading it does
+/// not touch the place.
+#[derive(Debug, Clone, Default)]
+pub struct Catalog {
+    pub scripts: Vec<CatalogScript>,
+    pub modules: Vec<CatalogModule>,
+}
+
+fn collect_modules(dom: &WeakDom, parent: Ref, base: &mut Vec<String>, out: &mut Vec<CatalogModule>) {
+    let Some(p) = dom.get_by_ref(parent) else { return };
+    for &c in p.children() {
+        let Some(i) = dom.get_by_ref(c) else { continue };
+        base.push(i.name.clone());
+        let mut children = Vec::new();
+        collect_modules(dom, c, base, &mut children);
+        out.push(CatalogModule {
+            name: i.name.clone(),
+            path: base.clone(),
+            class: i.class.to_string(),
+            children,
+        });
+        base.pop();
+    }
+}
+
+/// Lists the patch's CoreScripts and CoreGui modules (the same decode Play
+/// uses, so the two share [`PATCH_CACHE`]). Module sources are not read
+/// here; [`module_source`] reads one when the developer selects or copies
+/// it (the whole module tree is ~17 MB of Lua).
+pub fn catalog() -> Result<Catalog, String> {
+    let path = patch_path().ok_or_else(|| {
+        format!("Roblox's CoreScripts are not installed (no {}).", PATCH)
+    })?;
+    let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mtime = meta.modified().ok();
+    let len = meta.len();
+    let (script_names, modules) = {
+        let mut guard = PATCH_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        let hit = guard
+            .as_ref()
+            .is_some_and(|c| c.path == path && c.mtime == mtime && c.len == len);
+        if !hit {
+            let patch = read(&path)?;
+            *guard = Some(CachedPatch {
+                path: path.clone(),
+                mtime,
+                len,
+                patch,
+            });
+        }
+        let patch = &guard.as_ref().expect("just populated").patch;
+        let patch_root = named(&patch.dom, patch.dom.root_ref(), "PatchRoot")
+            .ok_or("the patch has no PatchRoot")?;
+        let mut script_names = Vec::new();
+        if let Some(scripts) = named(&patch.dom, patch_root, "CoreScripts") {
+            if let Some(node) = patch.dom.get_by_ref(scripts) {
+                for &k in node.children() {
+                    let Some(i) = patch.dom.get_by_ref(k) else { continue };
+                    if patch.bytecode.contains_key(&k) {
+                        script_names.push(i.name.clone());
+                    }
+                }
+            }
+        }
+        let instances = named(&patch.dom, patch_root, "DataModelInstances").unwrap_or(patch_root);
+        let mut modules = Vec::new();
+        if let Some(core) = named(&patch.dom, instances, "CoreGui") {
+            if let Some(gui) = named(&patch.dom, core, "RobloxGui") {
+                if let Some(mods) = named(&patch.dom, gui, "Modules") {
+                    collect_modules(&patch.dom, mods, &mut Vec::new(), &mut modules);
+                }
+            }
+        }
+        (script_names, modules)
+    };
+    let scripts = script_names
+        .into_iter()
+        .map(|name| {
+            let short = name.rsplit('/').next().unwrap_or(&name).to_string();
+            let source = source_for(&name);
+            CatalogScript { name, short, source }
+        })
+        .collect();
+    Ok(Catalog { scripts, modules })
+}
+
 /// Studio's BuiltInPlugins/Optimized_Embedded_Signature directory, when present
 /// (`RUSTUDIO_BUILTIN_PLUGINS_DIR` overrides `default_scripts::studio_dir()`).
 pub fn builtin_plugins_dir() -> Option<PathBuf> {
@@ -661,6 +844,17 @@ mod tests {
     }
 
     #[test]
+    fn core_script_and_module_source_maps_to_studio_files() {
+        if patch_path().is_none() {
+            return;
+        }
+        assert!(source_for("ExperienceChatMain").is_some());
+        assert!(source_for_instance("CoreGui.RobloxGui.CoreScripts.ExperienceChatMain").is_some());
+        assert!(source_for_instance("CoreGui.RobloxGui.Modules.BackpackScript").is_some());
+        assert!(source_for_instance("CoreGui.RobloxGui.Modules.PlayerList.PlayerListManager").is_some());
+    }
+
+    #[test]
     fn cached_install_reuses_decoded_patch() {
         let Some(path) = patch_path() else { return };
         let t0 = std::time::Instant::now();
@@ -675,5 +869,58 @@ mod tests {
         assert!(hit2, "second install_cached must reuse cached decoded patch");
         assert_eq!(i1.modules.len(), i2.modules.len());
         assert_eq!(i1.scripts.len(), i2.scripts.len());
+    }
+
+    /// The script editor opens a service entry with no Source yet (a
+    /// disabled placeholder) by its Explorer full name.
+    #[test]
+    fn service_entry_full_names_find_their_source() {
+        if patch_path().is_none() {
+            return;
+        }
+        assert!(
+            source_for_instance("CoreScripts.CoreScripts/ExperienceChatMain").is_some(),
+            "a CoreScript entry's full name maps to its Lua"
+        );
+        assert!(
+            source_for_instance("CoreScripts.Modules.BackpackScript").is_some(),
+            "a module entry's full name maps to its Lua"
+        );
+    }
+
+    /// With a Studio install, the browser's list has Roblox's CoreScripts
+    /// with their Lua, and the module tree maps to files on disk.
+    #[test]
+    fn catalog_lists_roblox_scripts_and_modules_when_present() {
+        if patch_path().is_none() {
+            return;
+        }
+        let catalog = catalog().expect("catalog");
+        assert!(
+            catalog.scripts.iter().any(|s| s.name == "StarterScript"),
+            "StarterScript is in the list"
+        );
+        assert!(
+            catalog.scripts
+                .iter()
+                .any(|s| s.name == "CoreScripts/ExperienceChatMain"),
+            "chat is in the list"
+        );
+        let with_source = catalog.scripts.iter().filter(|s| s.source.is_some()).count();
+        assert!(
+            with_source >= 40,
+            "{with_source} of {} scripts have source",
+            catalog.scripts.len()
+        );
+        assert!(!catalog.modules.is_empty(), "the CoreGui module tree is listed");
+        let backpack = catalog
+            .modules
+            .iter()
+            .find(|m| m.name == "BackpackScript")
+            .expect("BackpackScript is in the module tree");
+        assert!(
+            module_source(&backpack.path).is_some(),
+            "BackpackScript's source file maps from its instance path"
+        );
     }
 }

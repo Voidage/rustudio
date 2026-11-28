@@ -6,12 +6,17 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use glam::Vec3;
-use rbx_dom_weak::types::{CFrame, Color3uint8, Enum, Ref, Variant, Vector3};
+use rbx_dom_weak::types::{CFrame, Color3uint8, Enum, Ref, Tags, Variant, Vector3};
 use rbx_dom_weak::{ustr, InstanceBuilder, Ustr, WeakDom};
 use rbx_reflection::ClassTag;
 
 use crate::mech;
 use crate::math::Xform;
+
+/// A tag an earlier build put on CoreGui after seeding a saved copy of the
+/// default UI. CoreGui is built at Play now; loading a place removes that
+/// seed (and its UI) so Play can build the real, working tree.
+const CORE_GUI_SEEDED_TAG: &str = "RustudioCoreGuiSeeded";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocKind {
@@ -311,6 +316,13 @@ pub fn studio_default(class: &str, name: &str) -> Option<Variant> {
         ) if c != "TrussPart" && is_a(c, "BasePart") => {
             Some(Variant::Enum(rbx_dom_weak::types::Enum::from_u32(0)))
         }
+        // Roblox's default: shift lock is available unless the game opts out
+        // (StarterPlayer.EnableMouseLockOption copies to the Player's
+        // DevEnableMouseLock). The API dump has no defaults, so without this
+        // the stub read false and every game looked like it disabled it.
+        ("Player", "DevEnableMouseLock") | ("StarterPlayer", "EnableMouseLockOption") => {
+            Some(Variant::Bool(true))
+        }
         _ => None,
     }
 }
@@ -469,15 +481,43 @@ fn prop_plan(class: Ustr, key: Ustr) -> Option<std::rc::Rc<PropPlan>> {
 }
 
 pub fn db() -> &'static rbx_reflection::ReflectionDatabase<'static> {
-    rbx_reflection_database::get().unwrap_or_else(|_| rbx_reflection_database::get_bundled())
+    static DB: std::sync::OnceLock<rbx_reflection::ReflectionDatabase<'static>> = std::sync::OnceLock::new();
+    DB.get_or_init(|| {
+        let mut db = rbx_reflection_database::get()
+            .unwrap_or_else(|_| rbx_reflection_database::get_bundled())
+            .clone();
+        // CoreScripts are normally compiled (Roblox exposes no Source). This
+        // fork shows their Lua source and lets a place hold its own: add the
+        // property the serializer would otherwise drop. Like Roblox's own
+        // script Source it is not a script-visible property (the editor reads
+        // the DOM): a game script must not point `Source` at code and then
+        // toggle `Disabled` to run it at CoreScript identity.
+        if let Some(c) = db.classes.get_mut("CoreScript") {
+            let p = rbx_reflection::PropertyDescriptor::new(
+                "Source",
+                rbx_reflection::DataType::Value(rbx_dom_weak::types::VariantType::String),
+            );
+            c.properties.insert("Source", p);
+        }
+        // This fork's service for the scripts a place replaces or disables
+        // (the browser in src/core_scripts_panel.rs). Roblox has no such
+        // class; it behaves like a place-owned service here.
+        let mut service = rbx_reflection::ClassDescriptor::new("CoreScripts");
+        service.superclass = Some("Instance");
+        service.tags.insert(ClassTag::Service);
+        service.tags.insert(ClassTag::NotCreatable);
+        db.classes.insert("CoreScripts", service);
+        db
+    })
 }
 
 /// Services Studio keeps for the session only (never saved with the place):
-/// the plugin host puts plugin widgets and plugin GUI in them.
+/// the plugin host puts plugin widgets and plugin GUI in them. CoreGui is
+/// not here: this fork keeps it in the place, so the developer's CoreGui UI
+/// is saved and is what Play uses.
 pub const UNSAVED_SERVICES: &[&str] = &[
     "PluginGuiService",
     "RobloxPluginGuiService",
-    "CoreGui",
     "StudioService",
     "PluginDebugService",
     "ScriptEditorService",
@@ -573,7 +613,11 @@ pub fn is_service(class: &str) -> bool {
 }
 
 pub fn is_creatable(class: &str) -> bool {
-    is_script_creatable(class) && db().classes.get(class).is_some_and(|c| !c.tags.contains(&ClassTag::Deprecated))
+    // The fork's Insert Object offers CoreScript (Roblox tags it
+    // NotCreatable: game code never makes one). The editor can.
+    class == "CoreScript"
+        || (is_script_creatable(class)
+            && db().classes.get(class).is_some_and(|c| !c.tags.contains(&ClassTag::Deprecated)))
 }
 
 /// What `Instance.new` accepts: Studio creates deprecated classes too
@@ -1016,9 +1060,10 @@ impl Document {
             None,
             "Untitled place".into(),
         );
-        // What every Studio place has (Terrain, the Camera, the services),
-        // the same as an opened file gets.
+        // What every Studio place has (Terrain, the Camera, the services and
+        // the default CoreGui), the same as an opened file gets.
         doc.ensure_services();
+        doc.saved_revision = doc.revision;
         doc
     }
 
@@ -1080,9 +1125,16 @@ impl Document {
     pub fn decode(bytes: &[u8]) -> Result<WeakDom, String> {
         let xml = bytes.starts_with(b"<roblox") && !bytes.starts_with(b"<roblox!");
         if xml {
-            rbx_xml::from_reader_default(Cursor::new(bytes)).map_err(|e| e.to_string())
+            rbx_xml::from_reader(
+                Cursor::new(bytes),
+                rbx_xml::DecodeOptions::new().reflection_database(db()),
+            )
+            .map_err(|e| e.to_string())
         } else {
-            rbx_binary::from_reader(Cursor::new(bytes)).map_err(|e| e.to_string())
+            rbx_binary::Deserializer::new()
+                .reflection_database(db())
+                .deserialize(Cursor::new(bytes))
+                .map_err(|e| e.to_string())
         }
     }
 
@@ -1102,6 +1154,9 @@ impl Document {
         }
         let mut doc = Self::from_dom(dom, kind, Some(path.to_path_buf()), title);
         doc.ensure_services();
+        // Defaults/migrations done while loading are the baseline, not an
+        // unsaved edit the user has to notice.
+        doc.saved_revision = doc.revision;
         Ok(doc)
     }
 
@@ -1110,12 +1165,14 @@ impl Document {
     pub fn from_template_dom(dom: WeakDom, title: String) -> Self {
         let mut doc = Self::from_dom(dom, DocKind::Place, None, title);
         doc.ensure_services();
+        doc.saved_revision = doc.revision;
         doc
     }
 
     pub fn from_place_bytes(bytes: &[u8], title: String) -> Result<Self, String> {
         let mut doc = Self::from_dom(Self::decode(bytes)?, DocKind::Place, None, title);
         doc.ensure_services();
+        doc.saved_revision = doc.revision;
         Ok(doc)
     }
 
@@ -1135,6 +1192,36 @@ impl Document {
                 self.dom
                     .insert(root, InstanceBuilder::new(*svc).with_name(*svc));
                 added.push(*svc);
+            }
+        }
+        // This fork's CoreGui is a real, saved service, not a session-only
+        // one: its children are the developer's UI, and Play runs Roblox's
+        // CoreScripts into the same tree.
+        let core = self.find_child(root, "CoreGui").unwrap_or_else(|| {
+            added.push("CoreGui");
+            self.dom.insert(root, InstanceBuilder::new("CoreGui").with_name("CoreGui"))
+        });
+        // The developer's CoreScripts: Roblox's scripts they replace or
+        // disable, saved with the place (CoreGui's counterpart). Empty until
+        // they take one from the browser.
+        if self.find_child(root, "CoreScripts").is_none() {
+            added.push("CoreScripts");
+            self.dom.insert(root, InstanceBuilder::new("CoreScripts").with_name("CoreScripts"));
+        }
+        // CoreGui is built by Roblox's CoreScripts when Play starts, not
+        // saved in the place. Earlier builds of this fork saved a copy there
+        // (under `Authored`, or as a tagged default tree): drop that
+        // generated content so Play's real CoreGui is not shadowed by it.
+        if let Some(old) = self.find_named(core, "Authored") {
+            self.dom.destroy(old);
+        }
+        if self.has_tag(core, CORE_GUI_SEEDED_TAG) {
+            let kids = self.dom.get_by_ref(core).map(|i| i.children().to_vec()).unwrap_or_default();
+            for c in kids {
+                self.dom.destroy(c);
+            }
+            if let Some(i) = self.dom.get_by_ref_mut(core) {
+                i.properties.remove(&ustr("Tags"));
             }
         }
         if let Some(sp) = self.find_child(root, "StarterPlayer") {
@@ -1198,9 +1285,18 @@ impl Document {
     pub fn encode(&self, refs: &[Ref], xml: bool) -> Result<Vec<u8>, String> {
         let mut out = Vec::new();
         if xml {
-            rbx_xml::to_writer_default(&mut out, &self.dom, refs).map_err(|e| e.to_string())?;
+            rbx_xml::to_writer(
+                &mut out,
+                &self.dom,
+                refs,
+                rbx_xml::EncodeOptions::new().reflection_database(db()),
+            )
+            .map_err(|e| e.to_string())?;
         } else {
-            rbx_binary::to_writer(&mut out, &self.dom, refs).map_err(|e| e.to_string())?;
+            rbx_binary::Serializer::new()
+                .reflection_database(db())
+                .serialize(&mut out, &self.dom, refs)
+                .map_err(|e| e.to_string())?;
         }
         Ok(out)
     }
@@ -1226,7 +1322,16 @@ impl Document {
             .children()
             .iter()
             .copied()
-            .filter(|c| !self.dom.get_by_ref(*c).is_some_and(|i| UNSAVED_SERVICES.contains(&i.class.as_str())))
+            .filter(|c| {
+                let Some(i) = self.dom.get_by_ref(*c) else { return false };
+                if UNSAVED_SERVICES.contains(&i.class.as_str()) {
+                    return false;
+                }
+                // The fork's CoreScripts service is not a Roblox class. An
+                // empty one is re-made at load; leaving it out keeps an
+                // unused place byte-for-byte Roblox's own.
+                !(i.class == "CoreScripts" && i.children().is_empty())
+            })
             .collect()
     }
 
@@ -1274,6 +1379,16 @@ impl Document {
     }
 
     /// First descendant of `ancestor` with this name.
+    /// Whether `r` carries a tag (Tags are saved with the place).
+    fn has_tag(&self, r: Ref, tag: &str) -> bool {
+        match self.dom.get_by_ref(r).and_then(|i| i.properties.get(&ustr("Tags"))) {
+            Some(Variant::Tags(t)) => t.iter().any(|s| s.to_string() == tag),
+            Some(Variant::BinaryString(b)) => Tags::decode(b.as_ref())
+                .is_ok_and(|t| t.iter().any(|s| s.to_string() == tag)),
+            _ => false,
+        }
+    }
+
     pub fn find_named(&self, ancestor: Ref, name: &str) -> Option<Ref> {
         // (A ref from the other DataModel, or a removed one: nothing here.)
         self.dom.get_by_ref(ancestor)?;
@@ -2199,6 +2314,131 @@ impl Document {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// This fork keeps CoreGui with the place: a ScreenGui added directly to
+    /// CoreGui survives save/open. The service starts empty; Play builds the
+    /// live CoreGui into it with CoreScripts.
+    #[test]
+    fn core_gui_is_a_saved_place_service() {
+        let mut d = Document::new_place();
+        assert!(!d.dirty());
+        let root = d.dom.root_ref();
+        let core = d.find_child(root, "CoreGui").expect("new places have CoreGui");
+        assert!(d.dom.get_by_ref(core).unwrap().children().is_empty());
+        let hud = d.dom.insert(core, InstanceBuilder::new("ScreenGui").with_name("MyHud"));
+        d.mark_tree(hud);
+        let bytes = d.encode_all(true).unwrap();
+        let back = Document::from_place_bytes(&bytes, "core-gui.rbxlx".into()).unwrap();
+        let root = back.dom.root_ref();
+        let core = back.find_child(root, "CoreGui").expect("saved CoreGui");
+        assert!(back.find_named(core, "MyHud").is_some());
+        assert!(back.find_named(core, "ExperienceChat").is_none());
+    }
+
+    /// The old `CoreGui.Authored` tree and the tagged default seed are not
+    /// place content: loading a place removes them so Play builds the real
+    /// CoreGui.
+    #[test]
+    fn generated_core_gui_is_removed_on_load() {
+        let mut d = Document::new_place();
+        let core = d.find_child(d.dom.root_ref(), "CoreGui").unwrap();
+        let old = d.dom.insert(core, InstanceBuilder::new("Folder").with_name("Authored"));
+        d.dom.insert(old, InstanceBuilder::new("ScreenGui").with_name("OldHud"));
+        d.dom.insert(core, InstanceBuilder::new("ScreenGui").with_name("SeededHud"));
+        d.dom.get_by_ref_mut(core).unwrap().properties.insert(
+            ustr("Tags"),
+            Variant::Tags(Tags::from(vec!["RustudioCoreGuiSeeded".to_string()])),
+        );
+        d.ensure_services();
+        assert!(d.find_named(core, "Authored").is_none());
+        assert!(d.find_named(core, "OldHud").is_none());
+        assert!(d.find_named(core, "SeededHud").is_none());
+        assert!(!d.has_tag(core, "RustudioCoreGuiSeeded"));
+    }
+
+    #[test]
+    fn core_script_source_survives_save_and_open() {
+        assert!(is_creatable("CoreScript"));
+        let mut d = Document::new_place();
+        let core = d.find_child(d.dom.root_ref(), "CoreGui").unwrap();
+        d.dom.insert(
+            core,
+            InstanceBuilder::new("CoreScript")
+                .with_name("Mine")
+                .with_property("Source", "print('hi')\n".to_string()),
+        );
+        for xml in [false, true] {
+            let bytes = d.encode_all(xml).unwrap();
+            let back = Document::from_place_bytes(&bytes, "core-script.rbxlx".into()).unwrap();
+            let core = back.find_child(back.dom.root_ref(), "CoreGui").unwrap();
+            let r = back.find_named(core, "Mine").expect("CoreScript survived");
+            assert_eq!(
+                back.prop(r, "Source"),
+                Some(Variant::String("print('hi')\n".into())),
+                "xml={xml}"
+            );
+        }
+    }
+
+    /// An unused CoreScripts service is session-only, so ordinary places
+    /// still save as Roblox's own format; loading makes it again.
+    #[test]
+    fn an_empty_core_scripts_service_is_not_written() {
+        let d = Document::new_place();
+        let xml = String::from_utf8(d.encode_all(true).unwrap()).unwrap();
+        assert!(!xml.contains("CoreScripts"), "an empty CoreScripts service should not be saved");
+        let back = Document::from_place_bytes(xml.as_bytes(), "empty.rbxlx".into()).unwrap();
+        assert!(
+            back.find_child(back.dom.root_ref(), "CoreScripts").is_some(),
+            "loading a place makes the service again"
+        );
+    }
+
+    #[test]
+    fn core_scripts_service_saves_entries_and_disabled_state() {
+        let mut d = Document::new_place();
+        let svc = d
+            .find_child(d.dom.root_ref(), "CoreScripts")
+            .expect("new places have CoreScripts");
+        assert_eq!(d.class_of(svc).as_deref(), Some("CoreScripts"));
+        d.dom.insert(
+            svc,
+            InstanceBuilder::new("CoreScript")
+                .with_name("CoreScripts/ExperienceChatMain")
+                .with_property("Source", "print('mine')\n".to_string())
+                .with_property("Disabled", true),
+        );
+        for xml in [false, true] {
+            let bytes = d.encode_all(xml).unwrap();
+            let back = Document::from_place_bytes(&bytes, "core-scripts.rbxlx".into()).unwrap();
+            let svc = back
+                .find_child(back.dom.root_ref(), "CoreScripts")
+                .expect("CoreScripts service survived");
+            let r = back
+                .find_named(svc, "CoreScripts/ExperienceChatMain")
+                .expect("the entry survived");
+            assert_eq!(
+                back.prop(r, "Source"),
+                Some(Variant::String("print('mine')\n".into())),
+                "xml={xml}"
+            );
+            assert_eq!(back.prop(r, "Disabled"), Some(Variant::Bool(true)), "xml={xml}");
+        }
+    }
+
+    /// Shift lock is on unless the game turns it off (Roblox's default; the
+    /// Player takes the StarterPlayer value when it is created).
+    #[test]
+    fn mouse_lock_is_available_by_default() {
+        let mut d = Document::new_place();
+        let sp = d.find_child(d.dom.root_ref(), "StarterPlayer").unwrap();
+        assert_eq!(d.prop(sp, "EnableMouseLockOption"), Some(Variant::Bool(true)));
+        let p = d.dom.insert(d.dom.root_ref(), InstanceBuilder::new("Player"));
+        assert_eq!(d.prop(p, "DevEnableMouseLock"), Some(Variant::Bool(true)));
+        // A place that opted out keeps its false.
+        d.dom.get_by_ref_mut(sp).unwrap().properties.insert(ustr("EnableMouseLockOption"), Variant::Bool(false));
+        assert_eq!(d.prop(sp, "EnableMouseLockOption"), Some(Variant::Bool(false)));
+    }
 
     #[test]
     fn idle_queries_keep_spatial_marks_through_unrelated_journal_churn() {

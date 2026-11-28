@@ -136,7 +136,11 @@ impl Editor {
             a if a.starts_with("studio_settings:") || a.starts_with("studio_settings_fill:") || a.starts_with("ribbon_tab:") => (true, None),
             "undo" => (edit && self.game.doc.can_undo().is_some(), None),
             "redo" => (edit && self.game.doc.can_redo().is_some(), None),
-            "cut" | "copy" | "duplicate" | "delete" => (edit && sel, None),
+            // Roblox lets you copy from the running DataModel (play test,
+            // copy PlayerModule, stop, paste it into StarterPlayerScripts);
+            // changing the running DataModel stays disabled.
+            "copy" => (sel, None),
+            "cut" | "duplicate" | "delete" => (edit && sel, None),
             "paste" | "paste_original" => (edit && self.clipboard.is_some(), None),
             "paste_into" | "paste_into_original" => (edit && self.clipboard.is_some() && sel, None),
             "group" | "group_folder" => (edit && sel, None),
@@ -314,6 +318,7 @@ impl Editor {
             "panel_properties" => (true, open("Properties")),
             "panel_explorer" => (true, open("Explorer")),
             "panel_output" => (true, open("Output")),
+            "core_scripts" => (true, open("CoreScripts")),
             "insert_object" => (edit, None),
             "reset_layout" => (true, None),
             "dock_all" => (!self.ui.popped.is_empty(), None),
@@ -507,6 +512,7 @@ impl Editor {
                 }
             }
             "asset_manager" => self.ui.panel_requests.push((Tab::AssetManager, None)),
+            "core_scripts" => self.ui.panel_requests.push((Tab::CoreScripts, None)),
             "file_sync" => self.ui.panel_requests.push((Tab::FileSync, Some(true))),
             "microprofiler" => self.ui.panel_requests.push((Tab::Profiler, None)),
             a if a.starts_with("toolbox:") => self.toolbox_action(a),

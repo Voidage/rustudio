@@ -70,6 +70,8 @@ const TABLE: &[(&str, &str, Color32)] = &[
     ("ProximityPromptService", "hand-finger", MISC),
     ("Terrain", "mountain", Color32::from_rgb(110, 190, 110)),
     ("Camera", "camera", MISC),
+    ("CoreScripts", "file-code", SCRIPT),
+    ("CoreGui", "layout-dashboard", GUI),
     // Parts
     ("Part", "cube", PART),
     ("MeshPart", "box-model-2", PART),
@@ -101,6 +103,7 @@ const TABLE: &[(&str, &str, Color32)] = &[
     ("Team", "flag", Color32::from_rgb(240, 120, 120)),
     // Scripts
     ("Script", "file-code", SCRIPT),
+    ("CoreScript", "file-code", SCRIPT),
     ("LocalScript", "file-code-2", LOCAL),
     ("ModuleScript", "file-function", MODULE),
     // Humanoid / avatar

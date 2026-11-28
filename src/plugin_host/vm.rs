@@ -402,7 +402,7 @@ fn load_inner(
         let code: Vec<Ref> = d
             .dom
             .descendants_of(root)
-            .filter(|i| matches!(i.class.as_str(), "Script" | "LocalScript" | "ModuleScript"))
+            .filter(|i| matches!(i.class.as_str(), "Script" | "LocalScript" | "ModuleScript" | "CoreScript"))
             .map(|i| i.referent())
             .collect();
         for i in d.dom.descendants_of(root) {
@@ -521,7 +521,7 @@ pub fn unload(rt: &Runtime, id: PluginId) {
                 continue;
             }
             for i in d.dom.descendants_of(*top) {
-                if matches!(i.class.as_str(), "Script" | "LocalScript" | "ModuleScript") {
+                if matches!(i.class.as_str(), "Script" | "LocalScript" | "ModuleScript" | "CoreScript") {
                     code.insert(i.referent());
                 }
             }

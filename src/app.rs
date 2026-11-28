@@ -55,6 +55,9 @@ pub enum Tab {
     Explorer,
     Properties,
     Output,
+    /// The built-in CoreScripts and CoreGui modules, with what the place
+    /// replaces or disables (src/core_scripts_panel.rs).
+    CoreScripts,
     /// Studio's Avatar Settings (File > Avatar Settings).
     AvatarSettings,
     /// Studio's Terrain Editor (Home / View > Terrain Editor).
@@ -84,6 +87,7 @@ impl Tab {
             Tab::Explorer => "Explorer",
             Tab::Properties => "Properties",
             Tab::Output => "Output",
+            Tab::CoreScripts => "CoreScripts",
             Tab::AvatarSettings => "Avatar Settings",
             Tab::TerrainEditor => "Terrain Editor",
             Tab::AnimationEditor => "Animation Editor",
@@ -236,6 +240,8 @@ pub struct Editor {
     pub(crate) visible_attachments: crate::viewport::VisibleAttachments,
     /// The Output panel's toolbar choices (src/output_panel.rs).
     pub output_view: crate::output_panel::OutputState,
+    /// The CoreScripts browser (src/core_scripts_panel.rs).
+    pub core_scripts: crate::core_scripts_panel::CoreScriptsPanel,
     /// Dragging parts with the Select / Move tool (src/part_drag.rs).
     pub part_drag: Option<crate::part_drag::PartDrag>,
     pub explorer: ExplorerState,
@@ -444,7 +450,14 @@ impl RustudioApp {
             Tool::Select
         };
         let mut ed = Editor {
-            game: Game::new(render_state),
+            game: {
+                let mut game = Game::new(render_state);
+                // Studio Play steps the live client here so the Explorer and
+                // Properties panel edit CoreGui and the rest of the running
+                // DataModel (Roblox's Play Solo).
+                game.direct_play = true;
+                game
+            },
             dialogs: crate::file_dialog::Dialogs::new(egui_ctx.clone()),
             tool: initial_tool,
             collisions: mech::COLLISIONS_ON_BY_DEFAULT,
@@ -464,6 +477,7 @@ impl RustudioApp {
             marquee_centres: Default::default(),
             visible_attachments: Default::default(),
             output_view: Default::default(),
+            core_scripts: Default::default(),
             part_drag: None,
             explorer: ExplorerState::default(),
             props: PropertiesState::default(),
@@ -1109,7 +1123,7 @@ impl Editor {
         match crate::package::start(&place, signed_in) {
             Ok(job) => {
                 self.info(format!(
-                    "Packaging {} — cook + content pack, a few seconds",
+                    "Packaging {} — building the game, this takes a few seconds",
                     place.display()
                 ));
                 self.package_job = Some(job);
@@ -1380,7 +1394,11 @@ impl Editor {
         }
         // Studio's Insert Object names it as its constructor does (a
         // SpecialMesh "Mesh", a StringValue "Value").
-        let mut b = InstanceBuilder::new(class).with_name(doc::default_instance_name(class));
+        let mut b = InstanceBuilder::new(class).with_name(if class == "CoreScript" {
+            "CoreScript"
+        } else {
+            doc::default_instance_name(class)
+        });
         if doc::is_a(class, "BasePart") {
             let size = Vec3::from(mech::NEW_PART_SIZE);
             let pos = self.spawn_point(size);
@@ -1399,11 +1417,13 @@ impl Editor {
                 );
         }
         b = apply_insert_gui_defaults(class, b);
-        if matches!(class, "Script" | "LocalScript" | "ModuleScript") {
-            let src = if class == "ModuleScript" {
-                "local module = {}\n\nreturn module\n"
-            } else {
-                "print(\"Hello world!\")\n"
+        if matches!(class, "Script" | "LocalScript" | "ModuleScript" | "CoreScript") {
+            let src = match class {
+                "ModuleScript" => "local module = {}\n\nreturn module\n",
+                "CoreScript" => {
+                    "-- Runs at CoreScript security on the client. Put it under CoreGui.\nprint(\"Hello from a CoreScript\")\n"
+                }
+                _ => "print(\"Hello world!\")\n",
             };
             b = b.with_property("Source", src.to_string());
         }
@@ -2002,6 +2022,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Properties => self.ed.properties_ui(ui),
             Tab::Output if self.window.is_none() => self.ed.docked_panel(ui, *tab, Editor::output_ui),
             Tab::Output => self.ed.output_ui(ui),
+            Tab::CoreScripts => self.ed.core_scripts_ui(ui),
             Tab::AvatarSettings => self.ed.avatar_settings_ui(ui),
             Tab::TerrainEditor => self.ed.terrain_editor_ui(ui),
             Tab::AnimationEditor => self.ed.anim_editor_ui(ui),
@@ -2778,6 +2799,7 @@ impl RustudioApp {
             (Tab::Explorer, "Explorer"),
             (Tab::Properties, "Properties"),
             (Tab::Output, "Output"),
+            (Tab::CoreScripts, "CoreScripts"),
             (Tab::AvatarSettings, "Avatar Settings"),
             (Tab::TerrainEditor, "Terrain Editor"),
             (Tab::AnimationEditor, "Animation Editor"),

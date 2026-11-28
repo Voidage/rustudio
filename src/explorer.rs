@@ -589,7 +589,7 @@ impl Editor {
             }
         }
         if resp.double_clicked() {
-            if matches!(class.as_str(), "Script" | "LocalScript" | "ModuleScript") {
+            if matches!(class.as_str(), "Script" | "LocalScript" | "ModuleScript" | "CoreScript") {
                 actions.push(RowAction::OpenScript(r));
             } else {
                 actions.push(RowAction::StartRename(r));
@@ -628,7 +628,7 @@ impl Editor {
             };
             actions.push(RowAction::Reparent(p.0.clone(), target));
         }
-        let script = matches!(class.as_str(), "Script" | "LocalScript" | "ModuleScript");
+        let script = matches!(class.as_str(), "Script" | "LocalScript" | "ModuleScript" | "CoreScript");
         let can_paste = self.clipboard.is_some();
         resp.context_menu(|ui| {
             ui.set_min_width(200.0);

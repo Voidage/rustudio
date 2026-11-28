@@ -2484,7 +2484,9 @@ impl Game {
 
         let core_scripts = self.play.as_ref().is_some_and(|s| s.game.core_scripts_active);
 
-        // Hotbar (native fallback only when CoreScripts aren't running).
+        // Hotbar (native fallback when no CoreScripts run; the authored
+        // CoreGui is saved from CoreGui, and Roblox's backpack UI lives in
+        // PlayerGui, so it cannot supply the hotbar).
         let info = self.play_hotbar();
         if !core_scripts && self.show_core_gui && backpack_on && !info.is_empty() {
             let doc_dir = self.doc.path.as_ref().and_then(|p| p.parent()).map(|p| p.to_path_buf());

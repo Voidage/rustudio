@@ -94,6 +94,7 @@ pub const PLACEMENTS: &[Placement] = &[
     row("viewport", "Viewport", Center, &[], 0.0),
     row("script", "Script", Center, &[], 0.0),
     row("object_browser", "Object Browser", Center, &[], 0.0),
+    row("core_scripts", "CoreScripts", Center, &[], 0.0),
     // Right: Explorer above Properties, two groups (not tabbed together).
     row("explorer", "Explorer", Right, &[Above("properties", 0.54)], 0.24),
     row("properties", "Properties", Right, &[Below("explorer", 0.46)], 0.24),
@@ -177,6 +178,7 @@ impl Tab {
             Tab::Explorer => "explorer",
             Tab::Properties => "properties",
             Tab::Output => "output",
+            Tab::CoreScripts => "core_scripts",
             Tab::AvatarSettings => "avatar_settings",
             Tab::TerrainEditor => "terrain_editor",
             Tab::AnimationEditor => "clip_editor",

@@ -801,6 +801,9 @@ impl Game {
     /// thread. A `--fixed-dt` replay steps directly unless it is set to 1:
     /// the worker's GUI boxes reach scripts a step later than direct ones.
     pub fn use_gameplay_worker(&self) -> bool {
+        if self.direct_play {
+            return false;
+        }
         match std::env::var("RUSTUDIO_PLAY_WORKER").as_deref() {
             Ok("0") => false,
             Ok("1") => true,

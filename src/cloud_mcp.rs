@@ -96,7 +96,7 @@ impl crate::app::Editor {
             .doc
             .dom
             .descendants()
-            .filter(|i| matches!(i.class.as_str(), "Script" | "LocalScript" | "ModuleScript"))
+            .filter(|i| matches!(i.class.as_str(), "Script" | "LocalScript" | "ModuleScript" | "CoreScript"))
             .map(|i| i.referent())
             .filter(|r| live.model.server_id(*r).is_some_and(|id| live.drafts.get(id).is_some()))
             .collect()

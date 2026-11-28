@@ -1492,6 +1492,7 @@ impl Game {
             return;
         };
         let mut local = Vec::new();
+        let mut user_core_scripts: Vec<Ref> = Vec::new();
         if let Some(cdoc) = self.play.as_mut().and_then(|s| s.other_doc.as_mut()) {
             let root = cdoc.dom.root_ref();
             if let Some(players) = cdoc.find_child(root, "Players") {
@@ -1560,6 +1561,22 @@ impl Game {
                 cdoc,
                 &[cdoc.find_child(root, "ReplicatedFirst"), Some(cplayer)],
             );
+            // A CoreScript the place itself carries (with its Source) runs at
+            // CoreScript identity on the client, after Roblox's CoreScripts
+            // and before game LocalScripts. Insert one under CoreGui in Edit
+            // or copy a live CoreScript into CoreGui.
+            if let Some(core) = cdoc.find_child(root, "CoreGui") {
+                for i in cdoc.dom.descendants_of(core) {
+                    let r = i.referent();
+                    if i.class == "CoreScript"
+                        && cdoc.prop(r, "Source").is_some()
+                        && script_enabled(cdoc, r)
+                        && !user_core_scripts.contains(&r)
+                    {
+                        user_core_scripts.push(r);
+                    }
+                }
+            }
             // RunContext = Client Scripts run anywhere replicated (skip
             // client-only CoreGui / CorePackages installed from the patch).
             let services: Vec<Ref> = cdoc
@@ -1620,6 +1637,9 @@ impl Game {
             None => {}
         }
         self.with_side(Side::Client, |rt, _, _| {
+            for r in user_core_scripts {
+                rt.run_script_as(r, rustudio_engine::runtime::security::CORE);
+            }
             for r in local {
                 rt.start_collected(r);
             }
@@ -5759,5 +5779,242 @@ mod autoplay_sound_tests {
                 "{side:?}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod core_gui_tests {
+    use super::*;
+    use rbx_dom_weak::InstanceBuilder;
+
+    /// CoreGui belongs to the place but is built at Play: CoreScripts still
+    /// run (even when the place has its own CoreGui instances), and game
+    /// scripts can change the live tree by `game.CoreGui`.
+    #[test]
+    fn game_scripts_change_the_live_core_gui() {
+        let mut game = Game::new(None);
+        game.doc.ensure_services();
+        let root = game.doc.dom.root_ref();
+        let core = game.doc.find_child(root, "CoreGui").unwrap();
+        game.doc
+            .dom
+            .insert(core, InstanceBuilder::new("ScreenGui").with_name("DevHud"));
+        let sps = game
+            .doc
+            .find_child(root, "StarterPlayer")
+            .and_then(|sp| game.doc.find_child(sp, "StarterPlayerScripts"))
+            .expect("StarterPlayerScripts");
+        game.doc.dom.insert(
+            sps,
+            InstanceBuilder::new("LocalScript")
+                .with_name("CoreGuiProbe")
+                .with_property(
+                    "Source",
+                    r#"
+                    local hud = game:GetService("CoreGui"):WaitForChild("DevHud", 5)
+                    assert(hud, "DevHud missing")
+                    hud.Enabled = false
+                    local v = Instance.new("BoolValue")
+                    v.Name = "CoreGuiRan"
+                    v.Parent = workspace
+                    "#,
+                ),
+        );
+        let can_run_core_scripts = rustudio_core::core_scripts::patch_path().is_some()
+            && rustudio_core::rustudio_settings::core_scripts();
+        game.start_play(RunMode::Play, &mut (), false, None);
+        let ctx = egui::Context::default();
+        for _ in 0..60 {
+            game.play_tick(&ctx, 1.0 / 60.0, &mut (), true, false);
+        }
+        if can_run_core_scripts {
+            assert!(
+                game.play.as_ref().unwrap().game.core_scripts_active,
+                "CoreScripts must build the live CoreGui"
+            );
+        }
+        assert_eq!(
+            game.run_luau(
+                Side::Client,
+                r#"
+                assert(workspace:FindFirstChild("CoreGuiRan"), "CoreGui probe did not run")
+                local hud = game.CoreGui:FindFirstChild("DevHud")
+                assert(hud, "DevHud missing")
+                assert(hud.Enabled == false, "script could not change CoreGui live")
+                "#,
+            ),
+            None
+        );
+        if can_run_core_scripts {
+            assert_eq!(
+                game.run_luau(
+                    Side::Client,
+                    r#"assert(game.CoreGui:FindFirstChild("ExperienceChat"), "live chat UI missing")"#,
+                ),
+                None
+            );
+        }
+    }
+
+    /// A CoreScript the place carries runs at CoreScript identity on the
+    /// client, and live Roblox CoreScripts carry their Lua source for the
+    /// script editor.
+    #[test]
+    fn place_and_roblox_core_scripts_have_source_and_run() {
+        let mut game = Game::new(None);
+        game.doc.ensure_services();
+        let core = game.doc.find_child(game.doc.dom.root_ref(), "CoreGui").unwrap();
+        game.doc.dom.insert(
+            core,
+            InstanceBuilder::new("CoreScript")
+                .with_name("PlayerCoreScript")
+                .with_property(
+                    "Source",
+                    r#"
+                    local v = Instance.new("BoolValue")
+                    v.Name = "UserCoreRan"
+                    -- CoreScript identity: this protected member is refused to
+                    -- game scripts.
+                    v.Value = pcall(function()
+                        return game:GetService("UserInputService"):GetPlatform()
+                    end)
+                    v.Parent = workspace
+                    "#,
+                ),
+        );
+        let can_run_core_scripts = rustudio_core::core_scripts::patch_path().is_some()
+            && rustudio_core::rustudio_settings::core_scripts();
+        game.start_play(RunMode::Play, &mut (), false, None);
+        let ctx = egui::Context::default();
+        for _ in 0..60 {
+            game.play_tick(&ctx, 1.0 / 60.0, &mut (), true, false);
+        }
+        assert_eq!(
+            game.run_luau(
+                Side::Client,
+                r#"local v = workspace:FindFirstChild("UserCoreRan")
+                assert(v, "place CoreScript did not run")
+                assert(v.Value == true, "place CoreScript was not at CoreScript identity")"#,
+            ),
+            None
+        );
+        if can_run_core_scripts {
+            assert!(game.play.as_ref().unwrap().game.core_scripts_active);
+            let core = game.doc.find_child(game.doc.dom.root_ref(), "CoreGui").unwrap();
+            let has_source = game.doc.dom.descendants_of(core).any(|i| {
+                i.class == "CoreScript"
+                    && matches!(
+                        game.doc.prop(i.referent(), "Source"),
+                        Some(Variant::String(s)) if !s.is_empty()
+                    )
+                    && i.name != "PlayerCoreScript"
+            });
+            assert!(has_source, "live CoreScripts should carry their Lua source");
+        }
+    }
+
+    /// A place's CoreScripts service replaces an enabled built-in script,
+    /// skips a disabled one (chat's UI never appears), and supplies a built-in
+    /// module's source.
+    #[test]
+    fn place_core_scripts_service_overrides_and_disables_builtins() {
+        if rustudio_core::core_scripts::patch_path().is_none()
+            || !rustudio_core::rustudio_settings::core_scripts()
+        {
+            return;
+        }
+        let mut game = Game::new(None);
+        game.doc.ensure_services();
+        let svc = game
+            .doc
+            .find_child(game.doc.dom.root_ref(), "CoreScripts")
+            .expect("new places have CoreScripts");
+        game.doc.dom.insert(
+            svc,
+            InstanceBuilder::new("CoreScript")
+                .with_name("CoreScripts/PlayerBillboards")
+                .with_property(
+                    "Source",
+                    "local v = Instance.new('BoolValue')\n\
+                     v.Name = 'BillboardOverrideRan'\n\
+                     v.Value = pcall(function() return game:GetService('UserInputService'):GetPlatform() end)\n\
+                     v.Parent = workspace\n",
+                ),
+        );
+        game.doc.dom.insert(
+            svc,
+            InstanceBuilder::new("CoreScript")
+                .with_name("CoreScripts/ExperienceChatMain")
+                .with_property(
+                    "Source",
+                    "local v = Instance.new('BoolValue')\nv.Name = 'ChatOverrideRan'\nv.Parent = workspace\n",
+                )
+                .with_property("Disabled", true),
+        );
+        let mods = game.doc.dom.insert(svc, InstanceBuilder::new("Folder").with_name("Modules"));
+        game.doc.dom.insert(
+            mods,
+            InstanceBuilder::new("ModuleScript")
+                .with_name("BackpackScript")
+                .with_property("Source", "return {}\n"),
+        );
+        game.start_play(RunMode::Play, &mut (), false, None);
+        let ctx = egui::Context::default();
+        for _ in 0..60 {
+            game.play_tick(&ctx, 1.0 / 60.0, &mut (), true, false);
+        }
+        assert_eq!(
+            game.run_luau(
+                Side::Client,
+                r#"
+                local ran = workspace:FindFirstChild("BillboardOverrideRan")
+                assert(ran, "the enabled override did not run")
+                assert(ran.Value == true, "the override did not run at CoreScript identity")
+                assert(not workspace:FindFirstChild("ChatOverrideRan"), "the disabled override ran")
+                assert(not game.CoreGui:FindFirstChild("ExperienceChat"), "the disabled chat script built its UI")
+                "#,
+            ),
+            None
+        );
+        let core = game
+            .doc
+            .find_child(game.doc.dom.root_ref(), "CoreGui")
+            .expect("live CoreGui");
+        let gui = game.doc.find_named(core, "RobloxGui").expect("live RobloxGui");
+        let modules = game.doc.find_named(gui, "Modules").expect("live Modules");
+        let backpack = game
+            .doc
+            .find_named(modules, "BackpackScript")
+            .expect("live BackpackScript");
+        assert_eq!(
+            game.doc.prop(backpack, "Source"),
+            Some(Variant::String("return {}\n".into())),
+            "the place's BackpackScript source should replace the compiled module"
+        );
+    }
+
+    /// Worker Play is a copy: UI a script builds in CoreGui is live for the
+    /// session and does not leak into the place when Play stops.
+    #[test]
+    fn worker_play_core_gui_is_live_and_not_saved_back() {
+        let mut game = Game::new(None);
+        game.start_play_threaded(RunMode::Play, &mut (), false, None);
+        let err = game.run_luau(
+            Side::Client,
+            r#"
+            local cg = game:GetService("CoreGui")
+            local sg = Instance.new("ScreenGui")
+            sg.Name = "RuntimeHud"
+            sg.Parent = cg
+            local f = Instance.new("Frame")
+            f.Name = "Box"
+            f.Parent = sg
+            assert(cg:FindFirstChild("RuntimeHud") ~= nil)
+            "#,
+        );
+        assert!(err.is_none(), "{err:?}");
+        game.stop_play(&mut ());
+        let core = game.doc.find_child(game.doc.dom.root_ref(), "CoreGui").unwrap();
+        assert!(game.doc.find_named(core, "RuntimeHud").is_none());
     }
 }

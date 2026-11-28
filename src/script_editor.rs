@@ -273,11 +273,24 @@ impl Editor {
             return;
         };
         let class = inst.class.to_string();
-        let source = match self.game.doc.prop(r, "Source") {
+        let full_name = self.full_name(r);
+        let mut source = match self.game.doc.prop(r, "Source") {
             Some(Variant::String(s)) => s,
             _ => String::new(),
         };
-        let full_name = self.full_name(r);
+        // Roblox's modules carry compiled bytecode, not source. The same Lua
+        // ships in Studio's ExtraContent/scripts/CoreScripts; show it on
+        // first open (and let the developer edit/copy it).
+        if source.is_empty() {
+            if let Some(text) = rustudio_core::core_scripts::source_for_instance(&full_name) {
+                self.game.doc.set_props(
+                    "Load CoreScript source",
+                    vec![(r, rbx_dom_weak::ustr("Source"), Variant::String(text.clone()))],
+                    None,
+                );
+                source = text;
+            }
+        }
         let follow_live_source=self.live_script_has_draft(r)==Some(false);
         // A tab on screen is an open ScriptEditorService document.
         if !crate::plugin_host::script_docs::is_open(r) {
@@ -542,7 +555,7 @@ impl Editor {
             .doc
             .dom
             .descendants()
-            .filter(|i| matches!(i.class.as_str(), "Script" | "LocalScript" | "ModuleScript"))
+            .filter(|i| matches!(i.class.as_str(), "Script" | "LocalScript" | "ModuleScript" | "CoreScript"))
             .map(|i| i.referent())
             .find(|&r| self.full_name(r) == path);
         match found {

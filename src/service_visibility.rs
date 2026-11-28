@@ -5,11 +5,13 @@
 //! 0.7xx) and draws only the ones
 //! it says yes to; the instances stay in the DataModel. In order:
 //!
-//! 1. Forced off: CoreGui unless "Show Core GUI in Explorer
-//!    while Playing", PluginGuiService and RobloxPluginGuiService unless
+//! 1. Forced off: PluginGuiService and RobloxPluginGuiService unless
 //!    "Show Plugin GUI Service in Explorer", PluginDebugService, and
 //!    CorePackages / InternalSyncService (Roblox-internal builds only).
-//!    "Show Hidden Objects in Explorer" lifts all but the last two.
+//!    CoreGui is not forced off in this fork: it is a real part of the
+//!    place (its children are the developer's UI) and is always
+//!    listed, in Edit and Play. "Show Hidden Objects in Explorer" lifts
+//!    all but the last two.
 //! 2. The place's own choice: ServiceVisibilityService.VisibleServices /
 //!    HiddenServices (class names; Studio's Insert Service / hide service
 //!    actions write them) show or hide a class.
@@ -126,10 +128,16 @@ pub fn visible(
     meta: &dyn Fn(&str) -> Option<Meta>,
     superclass: &dyn Fn(&str) -> Option<String>,
 ) -> bool {
+    // This fork's own service, with no ReflectionMetadata entry: part of the
+    // place like CoreGui, always an Explorer item.
+    if class == "CoreScripts" {
+        return true;
+    }
     // 1. Forced off.
     let forced_off = match class {
         "CorePackages" | "InternalSyncService" => return false,
-        "CoreGui" => !prefs.show_core_gui,
+        // CoreGui is authorable in this fork: always an Explorer item.
+        "CoreGui" => false,
         "PluginGuiService" | "RobloxPluginGuiService" => !prefs.show_plugin_gui,
         "PluginDebugService" => true,
         _ => false,
@@ -287,7 +295,14 @@ mod tests {
         for c in STUDIO_DEFAULT {
             assert!(check(c, false, &none, Prefs::default()), "{c} should be listed");
         }
+        // This fork's own service: always listed, empty or not.
+        assert!(check("CoreScripts", false, &none, Prefs::default()), "CoreScripts should be listed");
         for c in STUDIO_HIDDEN {
+            // This fork keeps CoreGui in the place, so it is always listed.
+            if *c == "CoreGui" {
+                assert!(check(c, false, &none, Prefs::default()), "{c} should be listed");
+                continue;
+            }
             assert!(!check(c, false, &none, Prefs::default()), "{c} should not be listed");
         }
     }
@@ -316,9 +331,10 @@ mod tests {
         assert!(check("VideoService", false, &lists, Prefs::default()));
         assert!(check("Debris", false, &lists, Prefs::default()));
         assert!(!check("Teams", false, &lists, Prefs::default()));
-        // Forced-off classes stay off even when the place lists them.
+        // This fork's CoreGui is always an Explorer item, even with no
+        // children and no place list.
         let core = PlaceLists { visible: vec!["CoreGui".into()], hidden: vec![] };
-        assert!(!check("CoreGui", false, &core, Prefs::default()));
+        assert!(check("CoreGui", false, &core, Prefs::default()));
     }
 
     #[test]

@@ -84,7 +84,7 @@ const IGNORABLE: &[&str] = &[
 ];
 
 fn is_script(class: &str) -> bool {
-    matches!(class, "Script" | "LocalScript" | "ModuleScript")
+    matches!(class, "Script" | "LocalScript" | "ModuleScript" | "CoreScript")
 }
 
 fn file_safe(name: &str) -> String {

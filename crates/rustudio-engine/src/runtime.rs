@@ -4230,10 +4230,10 @@ fn newindex_routed(
     }
     let enabling = canon == "Disabled"
         && matches!(v, Variant::Bool(false))
-        && matches!(class, "Script" | "LocalScript");
+        && matches!(class, "Script" | "LocalScript" | "CoreScript");
     let disabling = canon == "Disabled"
         && matches!(v, Variant::Bool(true))
-        && matches!(class, "Script" | "LocalScript");
+        && matches!(class, "Script" | "LocalScript" | "CoreScript");
     let carry = canon == "CFrame" && doc::is_a(class, "BasePart");
     let before = if carry { part_xform(lua, r).ok() } else { None };
     store_prop_key(lua, r, info.canon, v)?;
@@ -4458,7 +4458,17 @@ fn script_enabled_here(lua: &Lua, r: Ref) -> mlua::Result<bool> {
 /// it runs, as in Roblox.
 fn start_if_enabled(lua: &Lua, r: Ref) -> mlua::Result<()> {
     let mut w = world(lua)?;
-    if !w.started.contains(&r) && w.runs_here(r) {
+    if w.started.contains(&r) {
+        return Ok(());
+    }
+    // A CoreScript is not under a service `runs_here` accepts; it starts
+    // again from its Source in Play (the browser's Enabled switch, or a
+    // script setting Disabled false).
+    if w.d().class_of(r).is_some_and(|c| c == "CoreScript") {
+        if w.mode == RunMode::Play {
+            w.to_start.push(r);
+        }
+    } else if w.runs_here(r) {
         w.to_start.push(r);
     }
     Ok(())
@@ -4488,8 +4498,9 @@ fn arg_str(args: &MultiValue, i: usize, what: &str) -> mlua::Result<String> {
     }
 }
 
-/// Descendants of `root` (DataModel), skipping hidden core services (`CoreGui`,
-/// `CorePackages`) and their subtrees so game scripts never see or walk them.
+/// Descendants of `root` (DataModel), skipping hidden core services
+/// (`CorePackages`) and their subtrees so game scripts never see or walk
+/// them. CoreGui is visible in this fork.
 fn descendants_skip_hidden(d: &Document, root: Ref) -> Vec<Ref> {
     let mut out = Vec::new();
     let Some(top) = d.dom.get_by_ref(root) else { return out };
@@ -7186,8 +7197,11 @@ impl Runtime {
     /// Takes the CoreScripts core_scripts::install put in this side's
     /// DataModel and starts the engine's entry CoreScript, StarterScript
     /// (core_scripts.rs), which adds the others.
-    pub fn start_core_scripts(&self, installed: rustudio_core::core_scripts::Installed) -> Result<(), String> {
+    pub fn start_core_scripts(&self, mut installed: rustudio_core::core_scripts::Installed) -> Result<(), String> {
         if let Ok(mut w) = world(&self.lua) {
+            // The place's CoreScripts service can replace a module's compiled
+            // source; do that before any CoreScript requires one.
+            apply_core_script_module_overrides(&mut w, &mut installed);
             w.core_scripts = installed;
         }
         match start_core_script(&self.lua, "StarterScript", Ref::none()) {
@@ -7208,9 +7222,12 @@ impl Runtime {
         }
     }
 
-    /// Starts a Script or LocalScript as a new coroutine.
+    /// Starts a Script or LocalScript as a new coroutine (a CoreScript at
+    /// its own identity, as when one is re-enabled during Play).
     pub fn run_script(&self, r: Ref) {
-        self.run_script_as(r, security::GAME)
+        let core = world(&self.lua)
+            .is_ok_and(|w| w.d().class_of(r).is_some_and(|c| c == "CoreScript"));
+        self.run_script_as(r, if core { security::CORE } else { security::GAME });
     }
 
     /// `run_script` at identity `ident` (plugins run at security::PLUGIN).
@@ -8077,17 +8094,180 @@ fn compile_script(lua: &Lua, r: Ref, shared: &Table) -> mlua::Result<Function> {
     result
 }
 
+/// The place's `CoreScripts` service, when present (this fork's class).
+fn core_scripts_service(d: &Document) -> Option<Ref> {
+    let root = d.dom.root_ref();
+    d.find_child(root, "CoreScripts")
+        .filter(|r| d.class_of(*r).is_some_and(|c| c == "CoreScripts"))
+}
+
+/// A direct child by name (Document::find_child looks a class up).
+fn named_child(d: &Document, parent: Ref, name: &str) -> Option<Ref> {
+    let node = d.dom.get_by_ref(parent)?;
+    node.children().iter().copied().find(|c| {
+        d.dom
+            .get_by_ref(*c)
+            .is_some_and(|i| i.name == name)
+    })
+}
+
+/// The service's entry for `name`: a CoreScript with exactly Roblox's name
+/// (`StarterScript`, `CoreScripts/ExperienceChatMain`, …).
+fn core_script_service_entry(d: &Document, name: &str) -> Option<Ref> {
+    let svc = core_scripts_service(d)?;
+    let node = d.dom.get_by_ref(svc)?;
+    node.children().iter().copied().find(|r| {
+        d.dom
+            .get_by_ref(*r)
+            .is_some_and(|i| i.class == "CoreScript" && i.name == name)
+    })
+}
+
+/// Replaces built-in module sources with the place's copies under
+/// `CoreScripts.Modules.<path>`, and drops their compiled bytecode so the
+/// engine compiles the developer's Source. Paths are instance names, as in
+/// `CoreGui.RobloxGui.Modules`.
+fn apply_core_script_module_overrides(w: &mut World, installed: &mut rustudio_core::core_scripts::Installed) {
+    let (svc, builtin_modules) = {
+        let d = w.d();
+        let Some(svc) = core_scripts_service(d) else { return };
+        let root = d.dom.root_ref();
+        let Some(core_gui) = d.find_child(root, "CoreGui") else { return };
+        let Some(gui) = named_child(d, core_gui, "RobloxGui") else { return };
+        let Some(modules) = named_child(d, gui, "Modules") else { return };
+        (svc, modules)
+    };
+    let d = w.dm();
+    let Some(overrides) = named_child(d, svc, "Modules") else { return };
+    let kids = d.dom.get_by_ref(overrides).map(|i| i.children().to_vec()).unwrap_or_default();
+    for c in kids {
+        let Some(i) = d.dom.get_by_ref(c) else { continue };
+        let mut path = vec![i.name.clone()];
+        apply_module_override(&mut d.dom, builtin_modules, c, &mut path, installed);
+    }
+}
+
+fn apply_module_override(
+    dom: &mut rbx_dom_weak::WeakDom,
+    builtin_modules: Ref,
+    node: Ref,
+    path: &mut Vec<String>,
+    installed: &mut rustudio_core::core_scripts::Installed,
+) {
+    let (class, source, children) = {
+        let Some(i) = dom.get_by_ref(node) else { return };
+        let source = match i.properties.get(&ustr("Source")) {
+            Some(Variant::String(s)) if !s.is_empty() => Some(s.clone()),
+            _ => None,
+        };
+        (i.class.to_string(), source, i.children().to_vec())
+    };
+    if class == "ModuleScript" {
+        if let Some(source) = source {
+            if let Some(target) = find_module_at(dom, builtin_modules, path) {
+                if dom.get_by_ref(target).is_some_and(|i| i.class == "ModuleScript") {
+                    if let Some(i) = dom.get_by_ref_mut(target) {
+                        i.properties.insert(ustr("Source"), Variant::String(source));
+                    }
+                    installed.modules.remove(&target);
+                }
+            }
+        }
+    }
+    for c in children {
+        let Some(i) = dom.get_by_ref(c) else { continue };
+        path.push(i.name.clone());
+        apply_module_override(dom, builtin_modules, c, path, installed);
+        path.pop();
+    }
+}
+
+fn find_module_at(dom: &rbx_dom_weak::WeakDom, parent: Ref, path: &[String]) -> Option<Ref> {
+    let mut cur = parent;
+    for seg in path {
+        let node = dom.get_by_ref(cur)?;
+        cur = *node.children().iter().find(|c| {
+            dom.get_by_ref(**c)
+                .is_some_and(|i| i.name.as_str() == seg.as_str())
+        })?;
+    }
+    Some(cur)
+}
+
+/// Runs `source` as a CoreScript instance under `parent`, at the CoreScript
+/// identity. Used when the place's CoreScripts service replaces a built-in
+/// script's compiled bytecode.
+fn start_core_script_source(lua: &Lua, name: &str, parent: Ref, source: String) -> mlua::Result<Ref> {
+    let (r, full) = {
+        let mut w = world(lua)?;
+        let b = InstanceBuilder::new("CoreScript")
+            .with_name(name)
+            .with_property("Source", source.clone());
+        let r = w.dm().dom.insert(parent, b);
+        if parent.is_none() {
+            w.orphans.insert(r);
+        } else {
+            w.dm().mark_tree(r);
+        }
+        w.structure_changed = true;
+        w.started.insert(r);
+        let full = w.full_name(r);
+        (r, full)
+    };
+    let env = crate::globals_parity::new_env(lua, Some(inst_value(lua, r)?))?;
+    let f = lua
+        .load(source)
+        .set_name(format!("={full}"))
+        .set_environment(env)
+        .into_function()?;
+    let th = domains::assets_cloud::scene::create_thread(lua, f)?;
+    security::set(&th, security::CORE);
+    resume(lua, &th, vec![]);
+    Ok(r)
+}
+
 /// Starts the CoreScript `name` of Studio's data model patch
 /// (`PatchRoot.CoreScripts`, core_scripts.rs) as a CoreScript instance under
 /// `parent` (none: parentless, as the engine's own StarterScript), at the
 /// CoreScript identity. Its chunk is `=` + its full name, the names Roblox
 /// reports (`StarterScript`, `CoreGui.RobloxGui.CoreScripts/<Name>`) and
 /// security::internal_chunk knows. None when the patch has no such script.
+///
+/// The place's own `CoreScripts` service comes first: an entry with
+/// `Disabled` set means the script does not start at all (no chat CoreScript
+/// working behind a chat GUI the developer removed), and one with `Source`
+/// runs that Lua in place of Roblox's compiled version.
 pub(crate) fn start_core_script(lua: &Lua, name: &str, parent: Ref) -> mlua::Result<Option<Ref>> {
+    let entry = {
+        let w = world(lua)?;
+        let d = w.d();
+        core_script_service_entry(d, name).map(|r| {
+            let disabled = matches!(d.prop(r, "Disabled"), Some(Variant::Bool(true)))
+                || matches!(d.prop(r, "Enabled"), Some(Variant::Bool(false)));
+            let source = match d.prop(r, "Source") {
+                Some(Variant::String(s)) if !s.is_empty() => Some(s),
+                _ => None,
+            };
+            (r, disabled, source)
+        })
+    };
+    if let Some((entry, disabled, source)) = entry {
+        if disabled {
+            return Ok(Some(entry));
+        }
+        if let Some(source) = source {
+            return start_core_script_source(lua, name, parent, source).map(Some);
+        }
+    }
+    let source = rustudio_core::core_scripts::source_for(name);
     let (r, code, full) = {
         let mut w = world(lua)?;
         let Some(code) = w.core_scripts.scripts.get(name).cloned() else { return Ok(None) };
-        let r = w.dm().dom.insert(parent, InstanceBuilder::new("CoreScript").with_name(name));
+        let mut b = InstanceBuilder::new("CoreScript").with_name(name);
+        if let Some(src) = source {
+            b = b.with_property("Source", src);
+        }
+        let r = w.dm().dom.insert(parent, b);
         if parent.is_none() {
             w.orphans.insert(r);
         } else {
@@ -8099,7 +8279,12 @@ pub(crate) fn start_core_script(lua: &Lua, name: &str, parent: Ref) -> mlua::Res
         (r, code, full)
     };
     let env = crate::globals_parity::new_env(lua, Some(inst_value(lua, r)?))?;
-    let f = lua.load(&code[..]).set_mode(mlua::chunk::ChunkMode::Binary).set_name(format!("={full}")).set_environment(env).into_function()?;
+    let f = lua
+        .load(&code[..])
+        .set_mode(mlua::chunk::ChunkMode::Binary)
+        .set_name(format!("={full}"))
+        .set_environment(env)
+        .into_function()?;
     let th = domains::assets_cloud::scene::create_thread(lua, f)?;
     security::set(&th, security::CORE);
     resume(lua, &th, vec![]);
@@ -9527,6 +9712,72 @@ mod legacy_tests {
         assert!(out.iter().any(|(_, t)| t.starts_with("state true false")), "{out:?}");
     }
 
+    /// The place's CoreScripts service: a Source entry runs instead of the
+    /// patch's script, and a Disabled one does not start at all.
+    #[test]
+    fn a_core_scripts_service_entry_overrides_and_disables() {
+        let mut d = Document::new_place();
+        let svc = d.find_child(d.dom.root_ref(), "CoreScripts").expect("new places have CoreScripts");
+        d.dom.insert(
+            svc,
+            InstanceBuilder::new("CoreScript")
+                .with_name("CoreScripts/Fake")
+                .with_property("Source", "print('place override ran')".to_string()),
+        );
+        let off = d.dom.insert(
+            svc,
+            InstanceBuilder::new("CoreScript")
+                .with_name("CoreScripts/Off")
+                .with_property("Disabled", true),
+        );
+        let rt = Runtime::new().unwrap();
+        rt.enter(World::new(d, RunMode::Play));
+        rt.bind_globals().unwrap();
+        let ran = start_core_script(&rt.lua, "CoreScripts/Fake", Ref::none()).unwrap();
+        assert!(ran.is_some());
+        let skipped = start_core_script(&rt.lua, "CoreScripts/Off", Ref::none()).unwrap();
+        assert_eq!(skipped, Some(off));
+        rt.step(1.0 / 60.0);
+        let out = rt.leave().output;
+        assert!(
+            out.iter().any(|(_, t)| t.starts_with("place override ran")),
+            "{out:?}"
+        );
+    }
+
+    /// A module copied into CoreScripts.Modules replaces the built-in
+    /// module's Source and drops its compiled bytecode.
+    #[test]
+    fn a_core_scripts_module_entry_replaces_builtin_source() {
+        let mut d = Document::new_place();
+        let root = d.dom.root_ref();
+        let core = d.find_child(root, "CoreGui").unwrap();
+        let gui = d
+            .dom
+            .insert(core, InstanceBuilder::new("ScreenGui").with_name("RobloxGui"));
+        let mods = d.dom.insert(gui, InstanceBuilder::new("Folder").with_name("Modules"));
+        let target = d
+            .dom
+            .insert(mods, InstanceBuilder::new("ModuleScript").with_name("BackpackScript"));
+        let svc = d.find_child(root, "CoreScripts").unwrap();
+        let overrides = d.dom.insert(svc, InstanceBuilder::new("Folder").with_name("Modules"));
+        d.dom.insert(
+            overrides,
+            InstanceBuilder::new("ModuleScript")
+                .with_name("BackpackScript")
+                .with_property("Source", "return 'from the place'".to_string()),
+        );
+        let mut installed = rustudio_core::core_scripts::Installed::default();
+        installed.modules.insert(target, std::sync::Arc::from(&b"bytecode"[..]));
+        let mut w = World::new(d, RunMode::Play);
+        apply_core_script_module_overrides(&mut w, &mut installed);
+        assert_eq!(
+            w.d().prop(target, "Source"),
+            Some(Variant::String("return 'from the place'".into()))
+        );
+        assert!(!installed.modules.contains_key(&target));
+    }
+
     /// An event is a userdata, typeof "RBXScriptSignal", and a bool property takes any
     /// value by truthiness, as in Roblox (round 26:
     /// another admin script's Flux connects FocusLost by typeof, binds Visible to a number).
@@ -10151,7 +10402,7 @@ mod weld_offset_tests {
             assert(game.JointsService == game:GetService("JointsService"), "JointsService dot")
             assert(game["Teleport Service"] == game:GetService("TeleportService"), "Teleport Service alias")
             assert(game["Script Context"] == game:GetService("ScriptContext"), "Script Context alias")
-            assert(game:FindFirstChild("CoreGui") == nil, "CoreGui hidden")
+            assert(game:FindFirstChild("CoreGui") ~= nil, "CoreGui is authorable in this fork")
             assert(game:FindFirstChild("StudioService") == nil, "StudioService hidden")
             assert(game:FindFirstChild("DebuggerManager") == nil, "DebuggerManager hidden")
             assert(game:FindFirstChild("ScriptEditorService") == nil, "ScriptEditorService hidden")
@@ -10162,7 +10413,8 @@ mod weld_offset_tests {
             local ok_dm = pcall(function() return game.DebuggerManager end)
             local ok_se = pcall(function() return game.ScriptEditorService end)
             local ok_ds = pcall(function() return game.DataStoreService end)
-            assert(not ok_cg and not ok_ss and not ok_dm and not ok_se and not ok_ds, "restricted/on-demand services not indexable")
+            assert(ok_cg, "game.CoreGui is accessible")
+            assert(not ok_ss and not ok_dm and not ok_se and not ok_ds, "restricted/on-demand services not indexable")
             local folder = Instance.new("Folder")
             assert(folder:FindFirstChild("ContentProvider") == nil, "only on DataModel")
             local ok_f = pcall(function() return folder.ContentProvider end)
@@ -10182,35 +10434,43 @@ mod weld_offset_tests {
     }
 
     #[test]
-    fn hidden_core_services_invisible_to_game_scripts() {
+    fn core_gui_is_visible_and_modifiable_to_game_scripts() {
         let out = run(
             |d| {
                 let root = d.dom.root_ref();
-                let cg = d.dom.insert(root, InstanceBuilder::new("CoreGui").with_name("CoreGui"));
-                d.dom.insert(cg, InstanceBuilder::new("ScreenGui").with_name("RobloxGui"));
+                let cg = d.find_child(root, "CoreGui").unwrap();
+                let sg = d.dom.insert(cg, InstanceBuilder::new("ScreenGui").with_name("RobloxGui"));
+                d.dom.insert(sg, InstanceBuilder::new("Frame").with_name("Live"));
                 let cp = d.dom.insert(root, InstanceBuilder::new("CorePackages").with_name("CorePackages"));
                 d.dom.insert(cp, InstanceBuilder::new("Folder").with_name("Packages"));
             },
             r#"
-                assert(game:FindFirstChild("CoreGui") == nil, "CoreGui FFC hidden")
+                assert(game:FindFirstChild("CoreGui") ~= nil, "CoreGui FFC visible")
+                assert(game:FindFirstChildOfClass("CoreGui") ~= nil, "CoreGui FFCoC visible")
+                assert(game:FindFirstChild("RobloxGui", true) ~= nil, "RobloxGui recursive visible")
+                local cg = game:GetService("CoreGui")
+                assert(cg ~= nil and game.CoreGui == cg, "CoreGui GetService and dot")
+                local frame = cg.RobloxGui:FindFirstChild("Live")
+                assert(frame ~= nil, "CoreGui UI instances are reachable")
+                frame.Visible = false
+                assert(frame.Visible == false, "CoreGui UI is modifiable live")
                 assert(game:FindFirstChild("CorePackages") == nil, "CorePackages FFC hidden")
-                assert(game:FindFirstChildOfClass("CoreGui") == nil, "CoreGui FFCoC hidden")
-                assert(game:FindFirstChild("RobloxGui", true) == nil, "RobloxGui recursive hidden")
-                assert(game:GetService("CoreGui") == nil, "CoreGui GetService hidden")
                 assert(game:GetService("CorePackages") == nil, "CorePackages GetService hidden")
-                assert(not pcall(function() return game.CoreGui end), "game.CoreGui hidden")
                 assert(not pcall(function() return game.CorePackages end), "game.CorePackages hidden")
+                local saw_core = false
                 for _, c in game:GetChildren() do
-                    assert(c.ClassName ~= "CoreGui" and c.ClassName ~= "CorePackages", "GetChildren hidden")
+                    if c.ClassName == "CoreGui" then saw_core = true end
+                    assert(c.ClassName ~= "CorePackages", "CorePackages in GetChildren")
                 end
+                assert(saw_core, "CoreGui in GetChildren")
                 for _, d in game:GetDescendants() do
-                    assert(d.Name ~= "RobloxGui" and d.Name ~= "Packages" and d.ClassName ~= "CoreGui" and d.ClassName ~= "CorePackages", "GetDescendants hidden")
+                    assert(d.Name ~= "Packages" and d.ClassName ~= "CorePackages", "CorePackages in GetDescendants")
                 end
-                print("CORE_HIDDEN", "ok")
+                print("CORE_VISIBLE", "ok")
             "#,
         );
         assert!(out.iter().all(|(l, _)| *l != Level::Error), "{out:?}");
-        assert_eq!(line(&out, "CORE_HIDDEN"), "ok", "{out:?}");
+        assert_eq!(line(&out, "CORE_VISIBLE"), "ok", "{out:?}");
     }
 
     #[test]

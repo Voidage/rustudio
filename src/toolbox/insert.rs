@@ -162,7 +162,7 @@ pub fn prepare(h: &dyn Http, job: u64, mut asset: Asset, target: Target, cancel:
             let dom = rustudio_core::doc::Document::decode(&bytes).map_err(|e| Failure::Other(format!("The asset file can't be read: {e}")))?;
             let scripts = dom
                 .descendants()
-                .filter(|i| matches!(i.class.as_str(), "Script" | "LocalScript" | "ModuleScript"))
+                .filter(|i| matches!(i.class.as_str(), "Script" | "LocalScript" | "ModuleScript" | "CoreScript"))
                 .count();
             Prepared::Model { dom, scripts }
         }

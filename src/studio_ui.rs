@@ -349,6 +349,7 @@ pub const WINDOW: &[M] = &[
     I("Activity History", "", "activity_history"),
     I("Asset Manager", "", "asset_manager"),
     I("Insert Object", "", "insert_object"),
+    I("CoreScripts", "", "core_scripts"),
     S,
     Sub("3D", &[
         I("Align", "", "align"),

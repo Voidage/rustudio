@@ -36,6 +36,7 @@ mod native_loop;
 pub use rustudio_player::{account, asset_report, emote_wheel, game, game_view, keys, offscreen, run_harness, player_app, play};
 pub mod frame_watchdog;
 pub mod class_icons;
+pub mod core_scripts_panel;
 pub mod bin_dump;
 #[cfg(unix)]
 pub mod control;

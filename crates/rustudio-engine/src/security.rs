@@ -492,21 +492,24 @@ pub fn check_create(lua: &Lua, class: &str) -> mlua::Result<()> {
     Ok(())
 }
 
-/// Services invisible to identity-2 game scripts even when present in DataModel
-/// (CoreGui, CorePackages when CoreScripts are loaded).
+/// Services invisible to identity-2 game scripts even when present in the
+/// DataModel. This fork keeps `CoreGui` visible and authorable (a game script
+/// may read and modify its live UI, which is the point of the fork);
+/// `CorePackages` stays internal.
 #[inline]
 pub fn is_hidden_service_class(name: &str) -> bool {
-    matches!(name, "CoreGui" | "CorePackages")
+    name == "CorePackages"
 }
 
-/// Whether the current thread cannot see hidden core services (`CoreGui`, `CorePackages`).
+/// Whether the current thread cannot see hidden core services (`CorePackages`).
 #[inline]
 pub fn hides_core_services(lua: &Lua) -> bool {
     current(lua) == GAME && !internal(lua)
 }
 
-/// GetService / FindService("CoreGui" | "CorePackages") answer nil to game
-/// scripts (measured in both Play contexts).
+/// GetService / FindService("CorePackages") answer nil to game scripts.
+/// CoreGui is deliberately not hidden: this fork gives the developer that
+/// power.
 pub fn service_hidden(lua: &Lua, name: &str) -> bool {
     is_hidden_service_class(name) && hides_core_services(lua)
 }
@@ -826,7 +829,8 @@ mod tests {
             "wait false The current thread cannot wait 'CoreGuiChangedSignal' (lacking capability RobloxScript)".to_string(),
             "mis false The current thread cannot connect 'Misprediction' (lacking capability PluginOrOpenCloud)".to_string(),
             "player false The current thread cannot create 'Player' (lacking capability WritePlayer)".to_string(),
-            "coregui nil".to_string(),
+            // CoreGui is authorable in this fork: game scripts see it.
+            "coregui CoreGui".to_string(),
             "alias false SignalBehaviorAlias is not a valid member of Workspace \"Workspace\"".to_string(),
             "stats Stats GlobalBasicSettings".to_string(),
         ] {

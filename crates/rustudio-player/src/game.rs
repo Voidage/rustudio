@@ -27,6 +27,10 @@ pub struct Game {
     /// Edit-mode on-demand Sound loading and preview playback.
     pub edit_audio: crate::edit_audio::EditAudio,
     pub(crate) play_thread: Option<crate::play_worker::ThreadedPlay>,
+    /// Studio Play steps the live client in this Game (the Explorer edits
+    /// CoreGui and the rest of the running DataModel); the standalone player
+    /// leaves this false and keeps the gameplay worker.
+    pub direct_play: bool,
     /// A play-testing teleport's destination, loading (play_teleport.rs).
     pub(crate) teleport_job: Option<crate::play_teleport::TeleportJob>,
     /// The place the next `start_play` plays instead of the edit document,
@@ -167,6 +171,7 @@ impl Game {
             play: None,
             edit_audio: Default::default(),
             play_thread: None,
+            direct_play: false,
             teleport_job: None,
             teleport_to: None,
             quiet_stop: false,

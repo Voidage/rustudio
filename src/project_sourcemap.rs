@@ -14,7 +14,7 @@ use rustudio_core::doc::Document;
 use crate::project::Origin;
 
 fn is_script(class: &str) -> bool {
-    matches!(class, "Script" | "LocalScript" | "ModuleScript")
+    matches!(class, "Script" | "LocalScript" | "ModuleScript" | "CoreScript")
 }
 
 impl ProjectState {
