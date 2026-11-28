@@ -27,8 +27,11 @@ each run replaces it; it has no `release.json` and no archive.
 The script fetches Studio's run-time content into the pack on first use
 (surfaces, sky, terrain, fonts, sounds — `scripts/fetch-studio-avatar.sh`);
 a package built without it renders without studs/sky and without the local
-head assets. The editor passes `--allow-missing` so one dead asset does not
-stop a test build; the cook output still lists it.
+head assets. It also stages Roblox's DataModelPatch and full PlayerScripts
+when Studio has them, so the package runs Roblox's real CoreGui/SettingsHub
+and PlayerModule (shift lock); see [PACK.md](PACK.md). `release-bundle.sh`
+does the same staging for `--pack`. The editor passes `--allow-missing` so
+one dead asset does not stop a test build; the cook output still lists it.
 
 ## Build a release
 

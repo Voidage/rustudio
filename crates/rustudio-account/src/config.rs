@@ -44,6 +44,11 @@ impl AccountConfig {
         if let Ok(p) = std::env::var("RUSTUDIO_ACCOUNT_CONFIG") {
             return PathBuf::from(p);
         }
+        // F9: a shipped game's settings stay in its bundle. The launcher sets
+        // RUSTUDIO_HOME; an empty value means the person's own folders.
+        if let Some(home) = std::env::var_os("RUSTUDIO_HOME").filter(|h| !h.is_empty()) {
+            return PathBuf::from(home).join("config/rustudio/account.toml");
+        }
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("rustudio")

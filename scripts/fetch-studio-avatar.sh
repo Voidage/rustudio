@@ -4,10 +4,17 @@
 # surface/sky/water textures and terrain materials (PlatformContent), fonts,
 # cursors and character sounds, plus RbxCharacterSounds.
 #
-#   scripts/fetch-studio-avatar.sh [STUDIO_DIR]
+#   scripts/fetch-studio-avatar.sh [--into DIR] [--roblox-runtime] [STUDIO_DIR]
 #
 # The Studio root is found from the argument, RUSTUDIO_STUDIO_DIR, Vinegar's
 # newest version, or the copy rustudio downloaded from Roblox.
+#
+# --into DIR        target pack root (default: game/content)
+# --roblox-runtime  copy Roblox's DataModelPatch and full PlayerScripts (the
+#                   CoreScripts, CoreGui, SettingsHub and the real PlayerModule)
+#                   instead of the avatar/content files. Package staging uses
+#                   this so a shipped game runs Roblox's own client scripts;
+#                   without them it falls back to rustudio's native UI.
 #
 # These files are Roblox's and are NOT committed (.gitignore): they are copied
 # from the developer's own Studio install for local/personal builds. For a
@@ -17,6 +24,16 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PACK="$ROOT/game/content"
+MODE=content
+STUDIO_ARG=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --into) PACK="${2:?--into needs a directory}"; shift 2 ;;
+        --roblox-runtime) MODE=roblox; shift ;;
+        -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+        *) STUDIO_ARG="$1"; shift ;;
+    esac
+done
 AVATAR="$PACK/content/avatar"
 FILES=(
     "character.rbxm"
@@ -71,11 +88,48 @@ find_studio() {
     return 1
 }
 
-STUDIO="$(find_studio "${1:-}")" || {
+STUDIO="$(find_studio "$STUDIO_ARG")" || {
     echo "no Studio content found: pass a Studio dir, set RUSTUDIO_STUDIO_DIR," >&2
     echo "install Studio (Vinegar), or run 'rustudio --install-studio-content'." >&2
     exit 1
 }
+
+if [[ $MODE == roblox ]]; then
+    if [[ "$PACK" == "$ROOT/game/content" ]]; then
+        echo "--roblox-runtime needs --into DIR: it replaces PlayerScripts and" >&2
+        echo "adds the ~18 MB data model patch, which are package staging only." >&2
+        exit 2
+    fi
+    # The client scripts a retail Roblox client runs: CoreGui/CorePackages and
+    # the CoreScripts from the data model patch, plus the full PlayerScripts
+    # tree (the real PlayerModule with CameraModule, ControlModule and
+    # MouseLockController, which is where shift lock lives).
+    MODELS="$STUDIO/ExtraContent/models"
+    if [[ ! -f "$MODELS/DataModelPatch/DataModelPatch.rbxm" \
+        || ! -d "$STUDIO/ExtraContent/scripts/PlayerScripts/StarterPlayerScripts" ]]; then
+        echo "missing in Studio: ExtraContent/models/DataModelPatch or PlayerScripts" >&2
+        exit 1
+    fi
+    rm -rf "$PACK/ExtraContent/models"
+    mkdir -p "$PACK/ExtraContent/models"
+    cp -R "$MODELS/." "$PACK/ExtraContent/models/"
+    rm -rf "$PACK/ExtraContent/scripts/PlayerScripts"
+    mkdir -p "$PACK/ExtraContent/scripts"
+    cp -R "$STUDIO/ExtraContent/scripts/PlayerScripts" "$PACK/ExtraContent/scripts/PlayerScripts"
+    # CoreScripts draw their icons with BuilderIcons: a font family JSON and
+    # its two ttfs, loaded as rbxasset://LuaPackages/... Without them the
+    # text stays the ligature names ("two-people", "gear") over the labels.
+    ICONS="$STUDIO/ExtraContent/LuaPackages/Packages/_Index/BuilderIcons/BuilderIcons"
+    if [[ -d "$ICONS" ]]; then
+        rm -rf "$PACK/ExtraContent/LuaPackages/Packages/_Index/BuilderIcons/BuilderIcons"
+        mkdir -p "$PACK/ExtraContent/LuaPackages/Packages/_Index/BuilderIcons"
+        cp -R "$ICONS" "$PACK/ExtraContent/LuaPackages/Packages/_Index/BuilderIcons/"
+    else
+        echo "missing in Studio: ExtraContent/LuaPackages BuilderIcons fonts" >&2
+    fi
+    echo "copied Roblox's CoreScripts, PlayerScripts and icon fonts from $STUDIO to $PACK"
+    exit 0
+fi
 
 mkdir -p "$AVATAR/scripts"
 for file in "${FILES[@]}"; do

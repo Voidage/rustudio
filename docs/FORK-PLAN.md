@@ -241,7 +241,7 @@ development.
 |---|---|---|
 | `RUSTUDIO_NO_SESSION` | `1` | Skip account restore/keyring/avatar/session check. |
 | `RUSTUDIO_NO_STUDIO_FETCH` | `1` | Stop the classic death-sound fetch (and any Studio download path). |
-| `RUSTUDIO_CORE_SCRIPTS` | `0` | Use the native fallback UI instead of Studio CoreScripts. |
+| `RUSTUDIO_CORE_SCRIPTS` | `1` when the pack has `DataModelPatch.rbxm`, else `0` | Roblox's own CoreScripts/CoreGui when the pack carries them; the native fallback UI otherwise. |
 | `RUSTUDIO_LIVE_DATA` | `0` | Keep DataStores/MemoryStores/Messaging local. |
 | `RUSTUDIO_CACHE_DIR` | `<bundle>/cache` | Bundled, first-priority disk asset cache. |
 | `RUSTUDIO_DATASTORE_DIR` | `<bundle>/datastores` | F5: the local DataStore backend's files. Also selects local DataStores for a local place. |
@@ -1187,7 +1187,7 @@ offline test. §8.4 automates this with a per-place ledger and export.
 |---|---|---|
 | `RUSTUDIO_NO_SESSION` | `player_app.rs` | Any value disables restore. |
 | `RUSTUDIO_NO_STUDIO_FETCH` | `studio_content.rs` / settings | Stops classic oof fetch. |
-| `RUSTUDIO_CORE_SCRIPTS` | `rustudio_settings.rs` | `0`/`false`/`off` disables. |
+| `RUSTUDIO_CORE_SCRIPTS` | `rustudio_settings.rs` | `0`/`false`/`off` disables; a packaged game sets `1` only when its pack carries the data model patch. |
 | `RUSTUDIO_LIVE_DATA` | `rustudio_settings.rs` | Only `1` enables live cloud data. |
 | `RUSTUDIO_CACHE_DIR` | `assets::cache_dir` | Assets + pipeline cache. |
 | `RUSTUDIO_DATASTORE_DIR` | `domains::data::datastore_root` | F5: local DataStore records; also enables local DataStores for a local place. |

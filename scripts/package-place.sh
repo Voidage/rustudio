@@ -11,7 +11,7 @@
 #   --signed-in       let the cook use the saved Roblox session
 #   --allow-missing   package even when the cook reports a missing asset
 #                     (the cook output still names it; a release should not)
-#   --keep-build      keep the cook's staging folder (.build)
+#   --keep-build      keep the staging folders (.build, .pack)
 #
 # The result is <out>/<id>/:
 #
@@ -66,6 +66,7 @@ fi
 NAME="${NAME:-$ID}"
 OUT="${OUT:-$(dirname "$PLACE")/package}"
 BUILD="$OUT/.build"
+PACK_SRC="$OUT/.pack"
 DEST="$OUT/$ID"
 
 find_bin() { # NAME ENV
@@ -110,10 +111,23 @@ if [[ ! -f "$ROOT/game/content/PlatformContent/pc/textures/studs.dds" \
     }
 fi
 
-echo "== cook $(basename "$PLACE") -> $BUILD"
+# Stage the pack: Roblox's own CoreScripts and full PlayerScripts when the
+# developer's Studio has them, else rustudio's committed minimal PlayerModule
+# and native CoreGui fallback. The source pack stays clean (the Roblox files
+# are not committed); gamepack hashes exactly what the package ships.
+echo "== preparing game content"
+mkdir -p "$OUT"
+rm -rf "$PACK_SRC"
+cp -R "$ROOT/game/content" "$PACK_SRC"
+if ! "$ROOT/scripts/fetch-studio-avatar.sh" --roblox-runtime --into "$PACK_SRC"; then
+    echo "note: Roblox's CoreScripts are not included (Studio content not found);" >&2
+    echo "the package uses rustudio's native Escape menu and PlayerModule." >&2
+fi
+
+echo "== building $(basename "$PLACE")"
 rm -rf "$BUILD" "$DEST"
 mkdir -p "$BUILD"
-COOK_ARGS=(--place "$PLACE" --out "$BUILD" --content "$ROOT/game/content"
+COOK_ARGS=(--place "$PLACE" --out "$BUILD" --content "$PACK_SRC"
     --player "$PLAYER" --seconds 8)
 [[ $SIGNED -eq 1 ]] && COOK_ARGS+=(--signed-in)
 [[ $ALLOW -eq 1 ]] && COOK_ARGS+=(--allow-missing)
@@ -126,7 +140,7 @@ if [[ -z "$ENTRY" ]]; then
 fi
 ENTRY="place/$(basename "$ENTRY")"
 
-echo "== game.json"
+echo "== writing game.json"
 ASSETS_FIELD=""
 if [[ -d "$BUILD/assets" ]]; then
     ASSETS_FIELD='"assets": "assets",'
@@ -147,7 +161,7 @@ cat > "$BUILD/game.json" <<JSON
 }
 JSON
 
-echo "== assemble $DEST"
+echo "== assembling $DEST"
 mkdir -p "$DEST/engine" "$DEST/cache"
 cp "$LAUNCHER" "$DEST/$ID"
 cp "$PLAYER" "$DEST/engine/"
@@ -161,10 +175,10 @@ for part in assets assets.json; do
         cp -R "$BUILD/$part" "$DEST/"
     fi
 done
-"$GAMEPACK" build "$ROOT/game/content" --out "$DEST/content" --version "$VERSION" >/dev/null
+"$GAMEPACK" build "$PACK_SRC" --out "$DEST/content" --version "$VERSION" >/dev/null
 
 if [[ $KEEP -eq 0 ]]; then
-    rm -rf "$BUILD"
+    rm -rf "$BUILD" "$PACK_SRC"
 fi
 
 if [[ $ALLOW -eq 1 ]]; then

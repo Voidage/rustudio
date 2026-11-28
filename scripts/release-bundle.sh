@@ -141,8 +141,19 @@ if [[ -n "$PACK" ]]; then
         exit 2
     fi
     echo "== content pack from $PACK"
-    "$GAMEPACK" build "$PACK" --out "$STAGE/content" \
+    # Stage a copy so Roblox's CoreScripts and full PlayerScripts can be
+    # added when Studio is installed without touching the source pack.
+    PACK_SRC="$(mktemp -d)"
+    trap 'rm -rf "$PACK_SRC"' EXIT
+    cp -R "$PACK/." "$PACK_SRC/"
+    if ! "$ROOT/scripts/fetch-studio-avatar.sh" --roblox-runtime --into "$PACK_SRC"; then
+        echo "note: Roblox's CoreScripts are not in this release (Studio content not found);" >&2
+        echo "it uses rustudio's native Escape menu and PlayerModule." >&2
+    fi
+    "$GAMEPACK" build "$PACK_SRC" --out "$STAGE/content" \
         --version "${PACK_VERSION:-$VERSION}"
+    rm -rf "$PACK_SRC"
+    trap - EXIT
 fi
 
 sha256() {

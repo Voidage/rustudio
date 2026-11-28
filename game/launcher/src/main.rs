@@ -481,7 +481,6 @@ fn env_contract(bundle: &Bundle) -> Vec<(&'static str, OsString)> {
     let mut vars: Vec<(&'static str, OsString)> = vec![
         ("RUSTUDIO_NO_SESSION", "1".into()),
         ("RUSTUDIO_NO_STUDIO_FETCH", "1".into()),
-        ("RUSTUDIO_CORE_SCRIPTS", "0".into()),
         ("RUSTUDIO_LIVE_DATA", "0".into()),
         ("RUSTUDIO_CACHE_DIR", bundle.cache.clone().into_os_string()),
         // F5: the local DataStore backend persists game records here.
@@ -510,8 +509,19 @@ fn env_contract(bundle: &Bundle) -> Vec<(&'static str, OsString)> {
     match &bundle.content {
         Content::Bundled { root } | Content::Downloaded { root } => {
             vars.push(("RUSTUDIO_ENGINE_CONTENT_DIR", root.clone().into_os_string()));
+            // A pack that carries Roblox's data model patch runs Roblox's own
+            // CoreScripts (CoreGui, SettingsHub, player list, chat); one
+            // without it uses the engine's native fallback. Decide from what
+            // the pack actually contains, not from the player's saved editor
+            // setting.
+            let patch = root.join("ExtraContent/models/DataModelPatch/DataModelPatch.rbxm");
+            vars.push(("RUSTUDIO_CORE_SCRIPTS", if patch.is_file() { "1" } else { "0" }.into()));
         }
-        Content::None | Content::Engine => {}
+        // No pack to carry the patch: the engine's own content lookup (a
+        // development machine's Studio) is not part of the game.
+        Content::None | Content::Engine => {
+            vars.push(("RUSTUDIO_CORE_SCRIPTS", "0".into()));
+        }
     }
     vars
 }
@@ -795,6 +805,32 @@ mod tests {
         // The Studio-layout variables stay a development escape hatch.
         assert_eq!(get("RUSTUDIO_CONTENT_DIR"), None);
         assert_eq!(get("RUSTUDIO_STUDIO_DIR"), None);
+    }
+
+    #[test]
+    fn a_pack_with_the_data_model_patch_runs_roblox_core_scripts() {
+        let root = std::env::temp_dir().join(format!("rustudio-launcher-core-{}", std::process::id()));
+        let content = root.join("content");
+        let patch = content.join("ExtraContent/models/DataModelPatch/DataModelPatch.rbxm");
+        fs::create_dir_all(patch.parent().unwrap()).unwrap();
+        fs::write(&patch, b"patch").unwrap();
+        let bundle = Bundle {
+            root: root.clone(),
+            entry: root.join("place/game.rbxlx"),
+            engine: root.join("engine/rustudio-player"),
+            cache: root.join("cache"),
+            assets: None,
+            datastores: root.join("datastores"),
+            home: root.join("home"),
+            window_title: "X".into(),
+            content: Content::Bundled { root: content },
+            offline: false,
+            network: true,
+        };
+        let vars = env_contract(&bundle);
+        let get = |key: &str| vars.iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone());
+        assert_eq!(get("RUSTUDIO_CORE_SCRIPTS"), Some(OsString::from("1")));
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

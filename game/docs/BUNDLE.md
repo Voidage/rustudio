@@ -119,7 +119,7 @@ so a debug session can override any of them:
 |---|---|
 | `RUSTUDIO_NO_SESSION` | `1` |
 | `RUSTUDIO_NO_STUDIO_FETCH` | `1` |
-| `RUSTUDIO_CORE_SCRIPTS` | `0` |
+| `RUSTUDIO_CORE_SCRIPTS` | `1` when the pack has `ExtraContent/models/DataModelPatch/DataModelPatch.rbxm`, else `0` |
 | `RUSTUDIO_LIVE_DATA` | `0` |
 | `RUSTUDIO_CACHE_DIR` | `<bundle>/cache` |
 | `RUSTUDIO_DATASTORE_DIR` | `<bundle>/datastores` (F5) |
@@ -129,6 +129,13 @@ so a debug session can override any of them:
 | `RUSTUDIO_ENGINE_CONTENT_DIR` | `<pack>` (only when a pack resolves) |
 | `RUSTUDIO_OFFLINE` | `1` when the manifest's `offline` is true (F2) |
 | `RUSTUDIO_ASSET_PLACE` | `<bundle>/<entry>`: the capture ledger's place key (F4) |
+
+A pack built by **File > Package Game…** or `release-bundle.sh` includes
+Roblox's own CoreScripts and full `PlayerScripts` when the developer's Studio
+has them (`scripts/fetch-studio-avatar.sh --roblox-runtime`). The game then
+uses the real CoreGui/SettingsHub, player list, chat and the real PlayerModule
+(camera, controls, shift lock). A pack without the patch keeps rustudio's
+native Escape menu and minimal PlayerModule.
 
 `RUSTUDIO_HOME` scopes every per-user path: `paths::config` (rustudio and
 game settings), `paths::cache` (crash reports, diagnostic logs, non-asset
