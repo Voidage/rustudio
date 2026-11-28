@@ -85,8 +85,10 @@ Upstream is moving. Treat every change as debt.
    smoke test. A patch that no longer applies semantically is rewritten, not
    mechanically resolved.
 
-Patch inventory is tracked in §11 and must match
-`git log --oneline upstream/main..game`.
+The step-by-step sync checklist is in [UPDATING.md](UPDATING.md); the
+behaviours a sync must preserve are in
+[FORK-INVARIANTS.md](FORK-INVARIANTS.md). Patch inventory is tracked in §11 and
+must match `git log --oneline upstream/main..game`.
 
 ---
 

@@ -44,6 +44,10 @@ The rest of `docs/`:
   matching Studio's editor UI and materials.
 - [docs/TEAMCREATE.md](docs/TEAMCREATE.md), [docs/AUTH.md](docs/AUTH.md):
   Team Create and sign-in.
+- [docs/UPDATING.md](docs/UPDATING.md): rebasing the fork onto upstream
+  (rebase, never merge).
+- [docs/FORK-INVARIANTS.md](docs/FORK-INVARIANTS.md): the fork behaviours a
+  sync must not remove.
 - `checks/parity/`: per-area notes and results comparing rustudio with Studio.
 
 ## How changes should look
